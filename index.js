@@ -1,73 +1,52 @@
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
-const path = require('path');
 const cors = require('cors');
-require('dotenv').config();
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Configuration from environment variables
-const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vibration_monitoring';
-const NODE_ENV = process.env.NODE_ENV || 'development';
-
 // Middleware
-app.use(express.json());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true
 }));
+app.use(express.json());
 app.use(express.static('public'));
 
-// MongoDB connection with improved error handling
-mongoose.connect(MONGODB_URI, {
+// Environment validation
+if (!process.env.MONGODB_URI) {
+  console.error('ERROR: MONGODB_URI environment variable is required');
+  process.exit(1);
+}
+
+// MongoDB connection
+mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
   maxPoolSize: parseInt(process.env.DB_MAX_POOL_SIZE) || 10,
   minPoolSize: parseInt(process.env.DB_MIN_POOL_SIZE) || 5,
-})
-.then(() => {
-  console.log('✅ Connected to MongoDB successfully');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error);
-  process.exit(1);
 });
 
-// Enhanced MongoDB schemas
+// MongoDB schemas
 const TestSessionSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
+  name: { type: String, required: true },
   startTime: { type: Date, default: Date.now },
   endTime: { type: Date },
   isActive: { type: Boolean, default: true },
-  deviceId: { type: String, default: 'ESP8266_DEFAULT' },
-  samplingRate: { type: Number, default: 5 }, // Hz
-  threshold: { type: Number, default: 0.3 }, // g-force
   createdAt: { type: Date, default: Date.now }
 });
 
-// Add indexes for better performance
-TestSessionSchema.index({ createdAt: -1 });
-TestSessionSchema.index({ isActive: 1 });
-
 const VibrationDataSchema = new mongoose.Schema({
-  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TestSession', required: true, index: true },
+  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TestSession', required: true },
   timestamp: { type: String, required: true },
   deltaX: { type: Number, required: true },
   deltaY: { type: Number, required: true },
-  deltaZ: { type: Number, required: true },
-  magnitude: { type: Number }, // Calculated vibration magnitude
-  receivedAt: { type: Date, default: Date.now },
-  processed: { type: Boolean, default: false }
-});
-
-// Add compound indexes for efficient querying
-VibrationDataSchema.index({ sessionId: 1, receivedAt: 1 });
-VibrationDataSchema.index({ receivedAt: -1 });
   deltaZ: { type: Number, required: true },
   receivedAt: { type: Date, default: Date.now }
 });

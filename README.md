@@ -86,6 +86,8 @@ graph TB
     I -->|Commands| F
     F -->|Session Control| C
 ```
+    F -->|Session Control| C
+```
 
 ### Architectural Components
 
