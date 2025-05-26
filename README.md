@@ -517,14 +517,14 @@ CORS_ORIGIN=http://localhost:3000
 
 ```mermaid
 graph LR
-    subgraph "ESP8266 NodeMCU"
+    subgraph ESP8266["ESP8266 NodeMCU"]
         A[3.3V]
         B[GND] 
-        C[GPIO4 D2]
-        D[GPIO5 D1]
+        C[GPIO4_D2]
+        D[GPIO5_D1]
     end
     
-    subgraph "MPU9250 Sensor"
+    subgraph MPU9250["MPU9250 Sensor"]
         E[VCC]
         F[GND]
         G[SDA]
@@ -767,15 +767,15 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> Ready: System Connected
     Ready --> SessionCreated: Enter Session Name + Start Test
-    SessionCreated --> Recording: ESP8266 Activated
+    SessionCreated --> ActiveMonitoring: ESP8266 Activated
     
-    Recording --> DataPoint: Vibration Detected
-    DataPoint --> Recording: Data Stored & Visualized
+    ActiveMonitoring --> DataCollection: Vibration Detected
+    DataCollection --> ActiveMonitoring: Data Stored
     
-    Recording --> SessionEnded: Stop Test Button
+    ActiveMonitoring --> SessionEnded: Stop Test Button
     SessionEnded --> Ready: Session Saved
     
-    Recording --> ErrorState: Connection Lost
+    ActiveMonitoring --> ErrorState: Connection Lost
     ErrorState --> Recording: Auto-Reconnect
     ErrorState --> Ready: Manual Reset
 ```
