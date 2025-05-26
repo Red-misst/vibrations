@@ -86,8 +86,7 @@ graph TB
     I -->|Commands| F
     F -->|Session Control| C
 ```
-    F -->|Session Control| C
-```
+
 
 ### Architectural Components
 
@@ -812,22 +811,31 @@ The system provides comprehensive real-time analytics:
 
 ```mermaid
 graph TD
-    A[Raw Sensor Data] --> B[Delta Calculation]
-    B --> C[Threshold Detection]
-    C --> D[Statistical Processing]
+    A[Raw Sensor Data] --> B[Time Domain Analysis]
+    A --> C[Frequency Domain Analysis]
+    A --> D[Statistical Analysis]
     
-    D --> E[Peak Values]
-    D --> F[Average Values]
-    D --> G[Frequency Analysis]
-    D --> H[Duration Tracking]
+    B --> E[Peak Detection]
+    B --> F[RMS Calculation]
+    B --> G[Trend Analysis]
     
-    E --> I[Real-time Display]
-    F --> I
-    G --> I
-    H --> I
+    C --> H[FFT Analysis]
+    C --> I[Spectral Density]
+    C --> J[Harmonics Detection]
     
-    I --> J[CSV Export]
-    I --> K[Chart Visualization]
+    D --> K[Distribution Analysis]
+    D --> L[Correlation Studies]
+    D --> M[Anomaly Detection]
+    
+    E --> N[Research Outputs]
+    F --> N
+    G --> N
+    H --> N
+    I --> N
+    J --> N
+    K --> N
+    L --> N
+    M --> N
 ```
 
 #### Export Capabilities
@@ -885,19 +893,19 @@ with mechanical actuator)
 ```mermaid
 gantt
     title 24-Hour Stability Test
-    dateFormat  HH:mm
+    dateFormat  YYYY-MM-DD HH:mm
     axisFormat %H:%M
     
     section System Monitoring
-    Continuous operation    :active, stability, 00:00, 24h
-    Data collection        :data, after stability, 24h
-    Connection monitoring  :conn, after stability, 24h
+    Continuous operation    :active, stability, 2025-01-01 00:00, 2025-01-02 00:00
+    Data collection        :data, 2025-01-01 00:00, 2025-01-02 00:00
+    Connection monitoring  :conn, 2025-01-01 00:00, 2025-01-02 00:00
     
     section Validation Points
-    6-hour check          :milestone, m1, 06:00, 0h
-    12-hour check         :milestone, m2, 12:00, 0h
-    18-hour check         :milestone, m3, 18:00, 0h
-    24-hour analysis      :milestone, m4, 24:00, 0h
+    6-hour check          :milestone, m1, 2025-01-01 06:00, 0m
+    12-hour check         :milestone, m2, 2025-01-01 12:00, 0m
+    18-hour check         :milestone, m3, 2025-01-01 18:00, 0m
+    24-hour analysis      :milestone, m4, 2025-01-01 23:59, 0m
 ```
 
 **Performance Targets:**
@@ -1507,7 +1515,7 @@ interface SystemStatusMessage {
 | Error Category | Error Code | Symptoms | Root Cause | Solution | Prevention |
 |----------------|------------|----------|------------|----------|-----------|
 | **Network** | E001 | WiFi connection timeout | Wrong credentials | Update SSID/password | Use WPA2+ security |
-| **Network** | E002 | WebSocket connection refused | Server not running | Start server, check port | Monitor server status |
+| **Network** | E002 | WebSocket connection refused | Server not running | Start server, check port |
 | **Network** | E003 | High latency (>500ms) | Network congestion | Check bandwidth | Use wired connection |
 | **Hardware** | E101 | Sensor initialization failed | I2C wiring issue | Check connections | Use pullup resistors |
 | **Hardware** | E102 | Erratic readings | Power supply noise | Clean power supply | Use decoupling capacitors |
