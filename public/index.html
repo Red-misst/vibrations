@@ -122,6 +122,29 @@
             <p class="text-gray-300">Real-time vertical vibration analysis with frequency and damping calculations</p>
         </div>
 
+        <!-- NEW: Session Creation Panel (Moved to top) -->
+        <div class="bg-gradient-to-r from-blue-900 to-blue-800 border border-blue-700 rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-plus-circle text-blue-400 mr-2"></i>
+                Start New Monitoring Session
+            </h3>
+            <div class="flex flex-wrap gap-4">
+                <div class="flex-1">
+                    <label for="sessionName" class="block text-sm font-medium text-gray-400 mb-1">Session Name</label>
+                    <input type="text" id="sessionName" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
+                        placeholder="Enter test session name">
+                </div>
+                <div class="flex items-end">
+                    <button id="startSessionBtn" 
+                        class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center transition-all duration-200">
+                        <i class="fas fa-play mr-2"></i>
+                        Start New Session
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Connection Status Bar -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-4 mb-6">
             <div class="flex items-center justify-between">
@@ -149,18 +172,18 @@
             <div class="flex items-center justify-between">
                 <div class="flex space-x-4">
                     <button id="startTest" 
-                            class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center">
+                            class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center">
                         <i class="fas fa-play mr-2"></i>
                         Start Test
                     </button>
                     <button id="stopTest" 
-                            class="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center" 
+                            class="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center opacity-50" 
                             disabled>
                         <i class="fas fa-stop mr-2"></i>
                         Stop Test
                     </button>
                     <button id="exportData" 
-                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center">
+                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center">
                         <i class="fas fa-download mr-2"></i>
                         Export Data
                     </button>
@@ -226,31 +249,15 @@
             </div>
         </div>
 
-        <!-- Session Management Panel -->
+        <!-- Session Management Panel (moved down) -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
                 <i class="fas fa-folder-open text-blue-400 mr-2"></i>
-                Session Management
+                Session History
             </h3>
-            <div class="flex flex-wrap gap-4">
-                <div class="flex-1">
-                    <label for="sessionName" class="block text-sm font-medium text-gray-400 mb-1">Session Name</label>
-                    <input type="text" id="sessionName" 
-                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
-                        placeholder="Enter test session name">
-                </div>
-                <div class="flex items-end">
-                    <button id="startSessionBtn" 
-                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium flex items-center">
-                        <i class="fas fa-play mr-2"></i>
-                        Start Session
-                    </button>
-                </div>
-            </div>
             
             <!-- Session List -->
-            <div class="mt-6">
-                <h4 class="text-md font-medium text-gray-300 mb-2">Recent Sessions</h4>
+            <div>
                 <div class="bg-gray-700 rounded overflow-hidden">
                     <table class="min-w-full divide-y divide-gray-600">
                         <thead class="bg-gray-800">
@@ -306,8 +313,183 @@
     </div>
 
     <script>
-        // WebSocket connection to server - more robust connection handling
+        // Global variables
         let socket;
+        let rawZChart, deltaZChart, frequencyChart;
+        let currentSession = null;
+        let isRecording = false;
+        let dataPointCount = 0;
+        let connectedDevices = new Set();
+        
+        // Initialize charts
+        function initializeCharts() {
+            // Raw Z Chart
+            const rawZCtx = document.getElementById('rawZChart').getContext('2d');
+            rawZChart = new Chart(rawZCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Raw Z-axis (g)',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: 'rgb(156, 163, 175)',
+                                maxRotation: 0
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Delta Z Chart
+            const deltaZCtx = document.getElementById('deltaZChart').getContext('2d');
+            deltaZChart = new Chart(deltaZCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Delta Z-axis (g)',
+                        data: [],
+                        borderColor: 'rgb(139, 92, 246)',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: 'rgb(156, 163, 175)',
+                                maxRotation: 0
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Frequency Chart
+            const frequencyCtx = document.getElementById('frequencyChart').getContext('2d');
+            frequencyChart = new Chart(frequencyCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Amplitude',
+                        data: [],
+                        borderColor: 'rgb(74, 222, 128)',
+                        backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    return tooltipItems[0].label + ' Hz';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Frequency (Hz)',
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            ticks: {
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Amplitude',
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            ticks: {
+                                color: 'rgb(156, 163, 175)'
+                            },
+                            grid: {
+                                color: 'rgba(75, 85, 99, 0.2)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            console.log("Charts initialized successfully");
+        }
+
+        // WebSocket connection to server - more robust connection handling
         function connectWebSocket() {
             const protocol = window.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
             const host = window.location.host;
@@ -324,6 +506,11 @@
                 // Request current device list when connected
                 socket.send(JSON.stringify({
                     type: 'get_device_list'
+                }));
+                
+                // Request session list
+                socket.send(JSON.stringify({
+                    type: 'get_sessions'
                 }));
             });
 
@@ -350,10 +537,8 @@
             });
         }
 
-        // Connect when page loads
-        window.addEventListener('load', connectWebSocket);
-
         function handleWebSocketMessage(data) {
+            console.log("Received WebSocket message:", data.type);
             switch (data.type) {
                 case 'vibration_data':
                     updateVibrationData(data);
@@ -385,6 +570,9 @@
                 case 'session_deleted':
                     onSessionDeleted(data);
                     break;
+                case 'session_data':
+                    // Handle session data if needed for viewing historical sessions
+                    break;
             }
         }
 
@@ -406,15 +594,22 @@
                 document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
             }
 
-            // Update charts with Z-axis data
-            const time = new Date(data.timestamp).toLocaleTimeString();
+            // Format time for display on chart
+            let timestamp;
+            if (data.timestamp) {
+                // Convert timestamp to date if it's a number
+                const time = typeof data.timestamp === 'number' ? new Date(data.timestamp) : new Date();
+                timestamp = time.toLocaleTimeString();
+            } else {
+                timestamp = new Date().toLocaleTimeString();
+            }
             
             // Add data to raw Z-axis chart
-            rawZChart.data.labels.push(time);
+            rawZChart.data.labels.push(timestamp);
             rawZChart.data.datasets[0].data.push(data.rawZ || 0);
 
             // Add data to delta Z-axis chart
-            deltaZChart.data.labels.push(time);
+            deltaZChart.data.labels.push(timestamp);
             deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
 
             // Keep only last 50 data points
@@ -459,6 +654,11 @@
             currentSession = data.sessionId;
             document.getElementById('sessionId').textContent = data.sessionId || 'None';
             
+            if (data.isActive) {
+                isRecording = true;
+                updateButtonStates(true);
+            }
+            
             if (data.connectedDevices && data.connectedDevices.length > 0) {
                 connectedDevices = new Set(data.connectedDevices);
                 updateDeviceDisplay();
@@ -466,6 +666,7 @@
         }
 
         function updateDeviceStatus(data) {
+            console.log("Device status update:", data);
             if (data.status === 'connected') {
                 connectedDevices.add(data.deviceId);
             } else {
@@ -484,149 +685,41 @@
                 deviceIndicator.classList.add(isRecording ? 'recording' : 'connected');
                 deviceStatus.textContent = `${connectedDevices.size} device${connectedDevices.size > 1 ? 's' : ''} connected`;
                 deviceStatus.className = 'ml-2 font-semibold text-green-400';
+                
+                // Enable start button if devices are connected
+                document.getElementById('startTest').disabled = isRecording;
+                document.getElementById('startTest').classList.toggle('opacity-50', isRecording);
+                document.getElementById('startSessionBtn').disabled = isRecording;
+                document.getElementById('startSessionBtn').classList.toggle('opacity-50', isRecording);
             } else {
                 deviceIndicator.classList.add('disconnected');
                 deviceStatus.textContent = 'No devices';
-                deviceStatus.className = 'ml-2 font-semibold text-gray-500';
+                deviceStatus.className = 'ml-2 font-semibold text-red-400';
+                
+                // Disable start button if no devices
+                document.getElementById('startTest').disabled = true;
+                document.getElementById('startTest').classList.add('opacity-50');
+                document.getElementById('startSessionBtn').disabled = true;
+                document.getElementById('startSessionBtn').classList.add('opacity-50');
             }
         }
 
-        // Control handlers
-        document.getElementById('startTest').addEventListener('click', () => {
-            if (connectedDevices.size === 0) {
-                alert('No devices connected. Please ensure your ESP8266 is connected.');
-                return;
-            }
-            
-            socket.send(JSON.stringify({ 
-                type: 'start_test',
-                sessionName: 'Z-Axis Test ' + new Date().toLocaleString()
-            }));
-            isRecording = true;
-            dataPointCount = 0;
-            
-            document.getElementById('startTest').disabled = true;
-            document.getElementById('stopTest').disabled = false;
-            
-            // Clear charts
-            rawZChart.data.labels = [];
-            rawZChart.data.datasets[0].data = [];
-            deltaZChart.data.labels = [];
-            deltaZChart.data.datasets[0].data = [];
-            frequencyChart.data.labels = [];
-            frequencyChart.data.datasets[0].data = [];
-            rawZChart.update();
-            deltaZChart.update();
-            frequencyChart.update();
-            
-            updateDeviceDisplay();
-        });
+        function updateButtonStates(isActive) {
+            document.getElementById('startTest').disabled = isActive;
+            document.getElementById('startTest').classList.toggle('opacity-50', isActive);
+            document.getElementById('stopTest').disabled = !isActive;
+            document.getElementById('stopTest').classList.toggle('opacity-50', !isActive);
+            document.getElementById('startSessionBtn').disabled = isActive;
+            document.getElementById('startSessionBtn').classList.toggle('opacity-50', isActive);
+            document.getElementById('sessionName').disabled = isActive;
+        }
 
-        document.getElementById('stopTest').addEventListener('click', () => {
-            socket.send(JSON.stringify({ type: 'stop_test' }));
-            isRecording = false;
-            
-            document.getElementById('startTest').disabled = false;
-            document.getElementById('stopTest').disabled = true;
-            
-            updateDeviceDisplay();
-        });
-
-        document.getElementById('exportData').addEventListener('click', () => {
-            if (!currentSession) {
-                alert('No session data available for export.');
-                return;
-            }
-            
-            window.open(`/api/export/${currentSession}?format=csv`, '_blank');
-        });
-        
-        // Add new helper functions for session management
-        function viewSession(sessionId) {
-            // Request session data
-            socket.send(JSON.stringify({
-                type: 'get_session_data',
-                sessionId: sessionId
-            }));
-        }
-        
-        function exportSession(sessionId) {
-            window.open(`/api/export/${sessionId}?format=csv`, '_blank');
-        }
-        
-        function stopSession(sessionId) {
-            if (confirm('Are you sure you want to stop this session?')) {
-                socket.send(JSON.stringify({
-                    type: 'stop_test'
-                }));
-            }
-        }
-        
-        function deleteSession(sessionId) {
-            document.getElementById('deleteSessionId').value = sessionId;
-            document.getElementById('deleteModal').style.display = 'block';
-        }
-        
-        function closeDeleteModal() {
-            document.getElementById('deleteModal').style.display = 'none';
-        }
-        
-        function confirmDeleteSession() {
-            const sessionId = document.getElementById('deleteSessionId').value;
-            if (sessionId) {
-                socket.send(JSON.stringify({
-                    type: 'delete_session',
-                    sessionId: sessionId
-                }));
-            }
-            closeDeleteModal();
-        }
-        
-        function onSessionDeleted(data) {
-            if (data.success) {
-                // Request updated session list
-                socket.send(JSON.stringify({
-                    type: 'get_sessions'
-                }));
-            }
-        }
-        
-        // Initialize session management
-        document.getElementById('startSessionBtn').addEventListener('click', () => {
-            const sessionName = document.getElementById('sessionName').value.trim();
-            if (!sessionName) {
-                alert('Please enter a session name');
-                return;
-            }
-            
-            socket.send(JSON.stringify({
-                type: 'start_test',
-                sessionName: sessionName
-            }));
-        });
-        
-        // Load sessions on page load
-        window.addEventListener('load', () => {
-            // Request session list when socket is open
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'get_sessions'
-                }));
-            } else {
-                socket.addEventListener('open', () => {
-                    socket.send(JSON.stringify({
-                        type: 'get_sessions'
-                    }));
-                });
-            }
-        });
-        
         function updateResonanceData(data) {
             // Update frequency chart if frequencies are available
             if (data.frequencies && data.magnitudes) {
                 frequencyChart.data.labels = data.frequencies;
                 frequencyChart.data.datasets[0].data = data.magnitudes;
-                frequencyChart.update('none');
+                frequencyChart.update();
             }
             
             // Update engineering data
@@ -635,16 +728,16 @@
             
             // Create data items for each engineering calculation
             const calculations = [
-                { title: 'Natural Frequency', value: `${data.frequency.toFixed(2)} Hz` },
-                { title: 'Natural Period', value: `${data.naturalPeriod.toFixed(4)} s` },
-                { title: 'Damping Ratio', value: `${data.damping.toFixed(4)}` },
-                { title: 'Q Factor', value: `${data.qFactor.toFixed(2)}` },
-                { title: 'Stiffness (est.)', value: `${data.stiffness.toFixed(2)} N/m` },
-                { title: 'Damping Coefficient', value: `${data.dampingCoefficient.toFixed(3)} Ns/m` },
-                { title: 'RMS Value', value: `${data.rms.toFixed(4)}` },
-                { title: 'Crest Factor', value: `${data.crestFactor.toFixed(2)}` },
-                { title: 'Bandwidth', value: `${data.bandwidth.toFixed(2)} Hz` },
-                { title: 'Resonance Magnification', value: `${data.resonanceMagnification.toFixed(2)}×` }
+                { title: 'Natural Frequency', value: `${data.frequency?.toFixed(2) || 0} Hz` },
+                { title: 'Natural Period', value: `${data.naturalPeriod?.toFixed(4) || 0} s` },
+                { title: 'Damping Ratio', value: `${data.damping?.toFixed(4) || 0}` },
+                { title: 'Q Factor', value: `${data.qFactor?.toFixed(2) || 0}` },
+                { title: 'Stiffness (est.)', value: `${data.stiffness?.toFixed(2) || 0} N/m` },
+                { title: 'Damping Coefficient', value: `${data.dampingCoefficient?.toFixed(3) || 0} Ns/m` },
+                { title: 'RMS Value', value: `${data.rms?.toFixed(4) || 0}` },
+                { title: 'Crest Factor', value: `${data.crestFactor?.toFixed(2) || 0}` },
+                { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
+                { title: 'Resonance Magnification', value: `${data.resonanceMagnification?.toFixed(2) || 0}×` }
             ];
             
             calculations.forEach(calc => {
@@ -658,9 +751,69 @@
             });
         }
         
+        function onTestStarted(data) {
+            console.log("Test started:", data);
+            currentSession = data.sessionId;
+            isRecording = true;
+            dataPointCount = 0;
+            document.getElementById('dataPointCount').textContent = '0';
+            
+            // Update UI buttons
+            updateButtonStates(true);
+            
+            // Clear charts
+            clearCharts();
+            
+            // Update session ID display
+            document.getElementById('sessionId').textContent = currentSession || 'None';
+            
+            // Update device indicator
+            updateDeviceDisplay();
+        }
+        
+        function onTestStopped(data) {
+            console.log("Test stopped:", data);
+            isRecording = false;
+            
+            // Update UI buttons
+            updateButtonStates(false);
+            
+            // Show processing indicator
+            showNotification("Processing data and calculating resonance...", "info");
+            
+            // Request updated session list
+            socket.send(JSON.stringify({
+                type: 'get_sessions'
+            }));
+            
+            updateDeviceDisplay();
+        }
+        
+        function clearCharts() {
+            rawZChart.data.labels = [];
+            rawZChart.data.datasets[0].data = [];
+            deltaZChart.data.labels = [];
+            deltaZChart.data.datasets[0].data = [];
+            frequencyChart.data.labels = [];
+            frequencyChart.data.datasets[0].data = [];
+            
+            rawZChart.update();
+            deltaZChart.update();
+            frequencyChart.update();
+        }
+        
         function updateSessionsList(sessions) {
             const sessionListEl = document.getElementById('sessionList');
             sessionListEl.innerHTML = '';
+            
+            if (!sessions || sessions.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td colspan="4" class="px-4 py-3 text-center text-gray-500">No sessions found</td>
+                `;
+                sessionListEl.appendChild(row);
+                return;
+            }
             
             sessions.forEach(session => {
                 const row = document.createElement('tr');
@@ -701,59 +854,168 @@
             });
         }
         
-        function onTestStarted(data) {
-            currentSession = data.sessionId;
-            isRecording = true;
-            dataPointCount = 0;
-            
-            // Update UI
-            document.getElementById('startSessionBtn').disabled = true;
-            document.getElementById('startSessionBtn').classList.add('opacity-50');
-            document.getElementById('sessionName').disabled = true;
-            
-            // Clear charts
-            rawZChart.data.labels = [];
-            rawZChart.data.datasets[0].data = [];
-            deltaZChart.data.labels = [];
-            deltaZChart.data.datasets[0].data = [];
-            frequencyChart.data.labels = [];
-            frequencyChart.data.datasets[0].data = [];
-            
-            rawZChart.update();
-            deltaZChart.update();
-            frequencyChart.update();
-            
-            // Show notification
-            alert(`Session "${data.sessionName}" started successfully!`);
-            
-            // Request updated session list
-            socket.send(JSON.stringify({
-                type: 'get_sessions'
-            }));
+        function onSessionDeleted(data) {
+            if (data.success) {
+                showNotification("Session deleted successfully", "success");
+                
+                // Request updated session list
+                socket.send(JSON.stringify({
+                    type: 'get_sessions'
+                }));
+            } else {
+                showNotification("Error deleting session: " + (data.error || "Unknown error"), "error");
+            }
         }
         
-        function onTestStopped(data) {
-            isRecording = false;
+        // Helper functions for session management
+        function viewSession(sessionId) {
+            // Request session data
+            socket.send(JSON.stringify({
+                type: 'get_session_data',
+                sessionId: sessionId
+            }));
             
-            // Update UI
-            document.getElementById('startSessionBtn').disabled = false;
-            document.getElementById('startSessionBtn').classList.remove('opacity-50');
-            document.getElementById('sessionName').disabled = false;
+            showNotification("Loading session data...", "info");
+        }
+        
+        function exportSession(sessionId) {
+            window.open(`/api/export/${sessionId}?format=csv`, '_blank');
+        }
+        
+        function stopSession(sessionId) {
+            if (confirm('Are you sure you want to stop this session?')) {
+                socket.send(JSON.stringify({
+                    type: 'stop_test'
+                }));
+                
+                showNotification("Stopping session...", "info");
+            }
+        }
+        
+        function deleteSession(sessionId) {
+            document.getElementById('deleteSessionId').value = sessionId;
+            document.getElementById('deleteModal').style.display = 'block';
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+        
+        function confirmDeleteSession() {
+            const sessionId = document.getElementById('deleteSessionId').value;
+            if (sessionId) {
+                socket.send(JSON.stringify({
+                    type: 'delete_session',
+                    sessionId: sessionId
+                }));
+            }
+            closeDeleteModal();
+        }
+        
+        function showNotification(message, type = 'info') {
+            // Create notification element if it doesn't exist
+            let notification = document.getElementById('notification');
+            if (!notification) {
+                notification = document.createElement('div');
+                notification.id = 'notification';
+                notification.className = 'fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-y-20 opacity-0';
+                document.body.appendChild(notification);
+            }
+            
+            // Set color based on type
+            if (type === 'success') {
+                notification.className = notification.className.replace(/bg-\w+-\d+/g, '') + ' bg-green-600';
+            } else if (type === 'error') {
+                notification.className = notification.className.replace(/bg-\w+-\d+/g, '') + ' bg-red-600';
+            } else {
+                notification.className = notification.className.replace(/bg-\w+-\d+/g, '') + ' bg-blue-600';
+            }
+            
+            // Set message
+            notification.textContent = message;
             
             // Show notification
-            alert('Session stopped. Analyzing data...');
+            setTimeout(() => {
+                notification.className = notification.className.replace('translate-y-20 opacity-0', '') + ' translate-y-0 opacity-100';
+            }, 10);
             
-            // Request resonance analysis
-            socket.send(JSON.stringify({
-                type: 'get_resonance_data',
-                sessionId: data.sessionId
-            }));
-            
-            // Request updated session list
-            socket.send(JSON.stringify({
-                type: 'get_sessions'
-            }));
+            // Hide after 3 seconds
+            setTimeout(() => {
+                notification.className = notification.className.replace('translate-y-0 opacity-100', '') + ' translate-y-20 opacity-0';
+            }, 3000);
         }
+
+        // Initialize app
+        window.addEventListener('load', () => {
+            initializeCharts();
+            connectWebSocket();
+            
+            // Auto-stop test when user navigates away
+            window.addEventListener('beforeunload', (e) => {
+                if (isRecording) {
+                    // Send stop test if recording
+                    socket.send(JSON.stringify({ type: 'stop_test' }));
+                    
+                    // Show confirmation dialog to prevent accidental navigation
+                    const message = 'You have an active recording session. Navigating away will stop the recording.';
+                    e.returnValue = message;
+                    return message;
+                }
+            });
+        });
+
+        // Event listeners for buttons
+        document.getElementById('startTest').addEventListener('click', () => {
+            const sessionName = prompt('Enter session name:', 'Z-Axis Test ' + new Date().toLocaleTimeString());
+            if (!sessionName) return;
+            
+            socket.send(JSON.stringify({ 
+                type: 'start_test',
+                sessionName: sessionName
+            }));
+        });
+
+        document.getElementById('stopTest').addEventListener('click', () => {
+            socket.send(JSON.stringify({ type: 'stop_test' }));
+        });
+
+        document.getElementById('exportData').addEventListener('click', () => {
+            if (!currentSession) {
+                alert('No session data available for export.');
+                return;
+            }
+            
+            window.open(`/api/export/${currentSession}?format=csv`, '_blank');
+        });
+        
+        document.getElementById('startSessionBtn').addEventListener('click', () => {
+            const sessionName = document.getElementById('sessionName').value.trim();
+            if (!sessionName) {
+                alert('Please enter a session name');
+                document.getElementById('sessionName').focus();
+                return;
+            }
+            
+            socket.send(JSON.stringify({
+                type: 'start_test',
+                sessionName: sessionName
+            }));
+            
+            // Visual feedback
+            const btn = document.getElementById('startSessionBtn');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-play mr-2"></i>Start New Session';
+            }, 1500);
+        });
+        
+        // Make functions available globally
+        window.viewSession = viewSession;
+        window.exportSession = exportSession;
+        window.stopSession = stopSession;
+        window.deleteSession = deleteSession;
+        window.closeDeleteModal = closeDeleteModal;
+        window.confirmDeleteSession = confirmDeleteSession;
     </script>
 </body>
 </html>

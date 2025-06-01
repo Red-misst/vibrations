@@ -111,7 +111,7 @@ let currentSession = null;
 let webClients = new Set();
 let espClients = new Map();
 
-// WebSocket handling
+// Enhanced WebSocket handling
 wss.on('connection', (ws, req) => {
   console.log(`WebSocket connection received from: ${req.url}`);
   
@@ -140,6 +140,7 @@ wss.on('connection', (ws, req) => {
     ws.on('message', async (message) => {  
       try {
         const data = JSON.parse(message);
+        console.log(`Web client message: ${data.type}`);
         
         // Add handler for device list request
         if (data.type === 'get_device_list') {
@@ -147,6 +148,15 @@ wss.on('connection', (ws, req) => {
             type: 'device_list',
             devices: Array.from(espClients.keys())
           }));
+          
+          // Also broadcast device_status for each device to ensure UI is updated
+          for (const deviceId of espClients.keys()) {
+            ws.send(JSON.stringify({
+              type: 'device_status',
+              deviceId: deviceId,
+              status: 'connected'
+            }));
+          }
           return;
         }
         
@@ -205,11 +215,7 @@ wss.on('connection', (ws, req) => {
             sessionId: currentSession._id,
             sessionName: currentSession.name
           });
-          webClients.forEach(client => {
-            if (client.readyState === 1) { // WebSocket.OPEN is now just 1
-              client.send(response);
-            }
-          });
+          broadcastToWebClients(JSON.parse(response));
         }
         
         if (data.type === 'stop_test') {
@@ -217,21 +223,41 @@ wss.on('connection', (ws, req) => {
             currentSession.endTime = new Date();
             currentSession.isActive = false;
             
-            // Calculate resonance before saving
-            await calculateResonance(currentSession._id);
-            
             await currentSession.save();
+            
+            // Calculate resonance after saving session data
+            console.log(`Calculating resonance for session ${currentSession._id}`);
+            await calculateResonance(currentSession._id);
             
             // Broadcast to all web clients
             const response = JSON.stringify({
               type: 'test_stopped',
               sessionId: currentSession._id
             });
-            webClients.forEach(client => {
-              if (client.readyState === 1) {
-                client.send(response);
+            broadcastToWebClients(JSON.parse(response));
+            
+            // After a short delay, send the resonance data to clients
+            setTimeout(async () => {
+              const sessionWithResonance = await TestSession.findById(currentSession._id);
+              if (sessionWithResonance && sessionWithResonance.resonanceAnalysisComplete) {
+                broadcastToWebClients({
+                  type: 'resonance_data',
+                  sessionId: sessionWithResonance._id,
+                  frequency: sessionWithResonance.naturalFrequency,
+                  damping: sessionWithResonance.dampingRatios && sessionWithResonance.dampingRatios.length > 0 ? 
+                            sessionWithResonance.dampingRatios[0] : 0,
+                  amplitude: sessionWithResonance.peakAmplitude,
+                  qFactor: sessionWithResonance.mechanicalProperties?.qFactor,
+                  naturalPeriod: sessionWithResonance.mechanicalProperties?.naturalPeriod,
+                  stiffness: sessionWithResonance.mechanicalProperties?.stiffness,
+                  dampingCoefficient: sessionWithResonance.mechanicalProperties?.dampingCoefficient,
+                  rms: sessionWithResonance.mechanicalProperties?.rms,
+                  crestFactor: sessionWithResonance.mechanicalProperties?.crestFactor,
+                  bandwidth: sessionWithResonance.mechanicalProperties?.bandwidth,
+                  resonanceMagnification: sessionWithResonance.mechanicalProperties?.resonanceMagnification
+                });
               }
-            });
+            }, 1500);
             
             currentSession = null;
           }
@@ -385,7 +411,7 @@ wss.on('connection', (ws, req) => {
     });
     
     ws.on('close', () => {
-      // Remove from ESP clients
+      // Find and remove device from espClients
       for (const [deviceId, client] of espClients.entries()) {
         if (client === ws) {
           espClients.delete(deviceId);
@@ -412,11 +438,16 @@ wss.on('connection', (ws, req) => {
  */
 async function calculateResonance(sessionId, isRealtime = false) {
   try {
+    console.log(`Beginning resonance calculation for session ${sessionId}, realtime=${isRealtime}`);
+    
     const session = await TestSession.findById(sessionId);
-    if (!session || session.zAxisData.length < 10) {
+    if (!session || !session.zAxisData || session.zAxisData.length < 10) {
       console.log('Not enough Z-axis data for resonance analysis');
       return { frequency: 0, damping: 0, amplitude: 0 };
     }
+    
+    const dataPoints = session.zAxisData.length;
+    console.log(`Processing ${dataPoints} data points for resonance analysis`);
     
     // Extract Z-axis raw values for frequency analysis
     const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
@@ -432,6 +463,8 @@ async function calculateResonance(sessionId, isRealtime = false) {
       ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
       : 50; // Default 50ms interval
     const samplingFreq = 1000 / avgSampleInterval; // Convert to Hz
+
+    console.log(`Sampling frequency: ${samplingFreq.toFixed(2)} Hz, Average interval: ${avgSampleInterval.toFixed(2)} ms`);
 
     // Perform FFT on Z-axis data
     const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
@@ -458,7 +491,7 @@ async function calculateResonance(sessionId, isRealtime = false) {
     const crestFactor = peakAmplitude / (rms > 0 ? rms : 1);
     
     // Calculate frequency spectrum characteristics
-    const bandwidth = dampingRatio * naturalFrequency;
+    const bandwidth = 2 * dampingRatio * naturalFrequency;
     const resonanceMagnification = qFactor;
     
     // Only update the database if this is not a real-time calculation
@@ -584,7 +617,9 @@ function calculateDampingRatio(data) {
 
 // Helper function to broadcast to web clients
 function broadcastToWebClients(data) {
-  const message = JSON.stringify(data);
+  const message = typeof data === 'string' ? data : JSON.stringify(data);
+  console.log(`Broadcasting to ${webClients.size} clients: ${typeof data === 'string' ? data.substring(0, 50) : data.type}`);
+  
   webClients.forEach(client => {
     if (client.readyState === 1) { // WebSocket.OPEN is 1
       client.send(message);
