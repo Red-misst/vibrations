@@ -306,202 +306,52 @@
     </div>
 
     <script>
-        // WebSocket connection to secure server
-        const socket = new WebSocket(window.location.protocol.startsWith('https') ? 'wss://' : 'ws://' + 
-                                   window.location.host + '/web');
-        let currentSession = null;
-        let isRecording = false;
-        let dataPointCount = 0;
-        let connectedDevices = new Set();
-        let frequencyData = {
-            frequencies: [],
-            amplitudes: []
-        };
-
-        // Chart configurations for Z-axis data only
-        const rawZChart = new Chart(document.getElementById('rawZChart'), {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Raw Z-Axis',
-                    data: [],
-                    borderColor: 'rgb(96, 165, 250)',
-                    backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        display: false,
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Acceleration (g)',
-                            color: '#D1D5DB'
-                        },
-                        ticks: {
-                            color: '#D1D5DB'
-                        },
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                animation: false
-            }
-        });
-
-        const deltaZChart = new Chart(document.getElementById('deltaZChart'), {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Z-Axis Delta',
-                    data: [],
-                    borderColor: 'rgb(196, 181, 253)',
-                    backgroundColor: 'rgba(196, 181, 253, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        display: false,
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Delta Z (g)',
-                            color: '#D1D5DB'
-                        },
-                        ticks: {
-                            color: '#D1D5DB'
-                        },
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                animation: false
-            }
-        });
-
-        // Initialize frequency chart
-        const frequencyChart = new Chart(document.getElementById('frequencyChart'), {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Frequency Response',
-                    data: [],
-                    borderColor: 'rgb(74, 222, 128)',
-                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Frequency (Hz)',
-                            color: '#D1D5DB'
-                        },
-                        ticks: {
-                            color: '#D1D5DB'
-                        },
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Amplitude',
-                            color: '#D1D5DB'
-                        },
-                        ticks: {
-                            color: '#D1D5DB'
-                        },
-                        grid: {
-                            color: 'rgba(75, 85, 99, 0.3)'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Frequency Response Analysis',
-                        color: '#D1D5DB'
-                    }
-                },
-                animation: false
-            }
-        });
-
-        // WebSocket event handlers
-        socket.addEventListener('open', () => {
-            updateConnectionStatus('connected');
-            console.log('Connected to secure WebSocket server');
+        // WebSocket connection to server - more robust connection handling
+        let socket;
+        function connectWebSocket() {
+            const protocol = window.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
+            const host = window.location.host;
+            const wsUrl = `${protocol}${host}/web`;
             
-            // Request current device list when connected
-            socket.send(JSON.stringify({
-                type: 'get_device_list'
-            }));
-        });
+            console.log(`Attempting WebSocket connection to: ${wsUrl}`);
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.addEventListener('open', () => {
+                updateConnectionStatus('connected');
+                console.log('Connected to WebSocket server');
+                
+                // Request current device list when connected
+                socket.send(JSON.stringify({
+                    type: 'get_device_list'
+                }));
+            });
 
-        socket.addEventListener('close', () => {
-            updateConnectionStatus('disconnected');
-            console.log('Disconnected from server');
-        });
+            socket.addEventListener('close', (event) => {
+                updateConnectionStatus('disconnected');
+                console.log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason}`);
+                
+                // Attempt to reconnect after a short delay
+                setTimeout(connectWebSocket, 3000);
+            });
 
-        socket.addEventListener('error', (error) => {
-            updateConnectionStatus('error');
-            console.error('WebSocket error:', error);
-        });
+            socket.addEventListener('error', (error) => {
+                updateConnectionStatus('error');
+                console.error('WebSocket error:', error);
+            });
 
-        socket.addEventListener('message', (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                handleWebSocketMessage(data);
-            } catch (error) {
-                console.error('Error parsing message:', error);
-            }
-        });
+            socket.addEventListener('message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                }
+            });
+        }
+
+        // Connect when page loads
+        window.addEventListener('load', connectWebSocket);
 
         function handleWebSocketMessage(data) {
             switch (data.type) {

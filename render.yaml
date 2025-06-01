@@ -12,3 +12,14 @@ services:
       - key: MONGODB_URI
         sync: false
     staticPublishPath: ./public
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /
+    headers:
+      - path: /*
+        name: Upgrade
+        value: $http_upgrade
+      - path: /*
+        name: Connection
+        value: $connection_upgrade

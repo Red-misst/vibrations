@@ -113,7 +113,12 @@ let espClients = new Map();
 
 // WebSocket handling
 wss.on('connection', (ws, req) => {
-  const clientType = req.url.includes('web') ? 'web' : 'esp8266';
+  console.log(`WebSocket connection received from: ${req.url}`);
+  
+  // More robust path checking
+  const clientType = req.url === '/web' || req.url.startsWith('/web?') ? 'web' : 'esp8266';
+  
+  console.log(`Client type identified as: ${clientType}`);
   
   if (clientType === 'web') {
     webClients.add(ws);
