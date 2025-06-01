@@ -320,6 +320,7 @@
         let isRecording = false;
         let dataPointCount = 0;
         let connectedDevices = new Set();
+        let viewingHistoricalSession = false;
         
         // Initialize charts
         function initializeCharts() {
@@ -428,24 +429,24 @@
                 data: {
                     labels: [],
                     datasets: [{
-                        label: 'Amplitude',
+                        label: 'Frequency Amplitude',
                         data: [],
                         borderColor: 'rgb(74, 222, 128)',
                         backgroundColor: 'rgba(74, 222, 128, 0.1)',
                         borderWidth: 2,
-                        pointRadius: 0,
+                        pointRadius: 1,
                         tension: 0.3
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: {
-                        duration: 0
-                    },
                     plugins: {
                         legend: {
-                            display: false
+                            display: false,
+                            labels: {
+                                color: 'rgb(156, 163, 175)'
+                            }
                         },
                         tooltip: {
                             callbacks: {
@@ -463,7 +464,9 @@
                                 color: 'rgb(156, 163, 175)'
                             },
                             ticks: {
-                                color: 'rgb(156, 163, 175)'
+                                color: 'rgb(156, 163, 175)',
+                                maxRotation: 0,
+                                minRotation: 0
                             },
                             grid: {
                                 color: 'rgba(75, 85, 99, 0.2)'
@@ -480,7 +483,8 @@
                             },
                             grid: {
                                 color: 'rgba(75, 85, 99, 0.2)'
-                            }
+                            },
+                            beginAtZero: true
                         }
                     }
                 }
@@ -571,11 +575,149 @@
                     onSessionDeleted(data);
                     break;
                 case 'session_data':
-                    // Handle session data if needed for viewing historical sessions
+                    // Handle historical session data
+                    handleSessionData(data);
                     break;
             }
         }
 
+        // New function for handling historical session data
+        function handleSessionData(data) {
+            console.log("Handling historical session data:", data);
+            viewingHistoricalSession = true;
+            
+            // Clear current charts
+            clearCharts();
+            
+            if (data.data && data.data.length > 0) {
+                // Set the data point count
+                dataPointCount = data.data.length;
+                document.getElementById('dataPointCount').textContent = dataPointCount;
+                
+                // Process the time series data
+                const timestamps = [];
+                const rawZValues = [];
+                const deltaZValues = [];
+                
+                data.data.forEach(point => {
+                    // Get time from timestamp or use receivedAt
+                    let timeLabel;
+                    if (point.timestamp) {
+                        timeLabel = new Date(parseInt(point.timestamp)).toLocaleTimeString();
+                    } else {
+                        timeLabel = new Date(point.receivedAt).toLocaleTimeString();
+                    }
+                    
+                    timestamps.push(timeLabel);
+                    rawZValues.push(point.rawZ);
+                    deltaZValues.push(point.deltaZ);
+                });
+                
+                // Update the charts
+                rawZChart.data.labels = timestamps;
+                rawZChart.data.datasets[0].data = rawZValues;
+                deltaZChart.data.labels = timestamps;
+                deltaZChart.data.datasets[0].data = deltaZValues;
+                
+                // Take a sample of data points for display if there are too many
+                if (timestamps.length > 50) {
+                    const skipFactor = Math.ceil(timestamps.length / 50);
+                    rawZChart.data.labels = timestamps.filter((_, i) => i % skipFactor === 0);
+                    rawZChart.data.datasets[0].data = rawZValues.filter((_, i) => i % skipFactor === 0);
+                    deltaZChart.data.labels = timestamps.filter((_, i) => i % skipFactor === 0);
+                    deltaZChart.data.datasets[0].data = deltaZValues.filter((_, i) => i % skipFactor === 0);
+                }
+                
+                // Update charts
+                rawZChart.update();
+                deltaZChart.update();
+                
+                // Update the metrics at the top of the page with resonance analysis data
+                if (data.resonanceData) {
+                    console.log("Processing resonance data:", data.resonanceData);
+                    
+                    // Update frequency metric
+                    if (data.resonanceData.naturalFrequency) {
+                        document.getElementById('frequencyValue').textContent = data.resonanceData.naturalFrequency.toFixed(2);
+                    }
+                    
+                    // Update damping ratio metric
+                    if (data.resonanceData.dampingRatios && data.resonanceData.dampingRatios.length > 0) {
+                        document.getElementById('dampingValue').textContent = data.resonanceData.dampingRatios[0].toFixed(4);
+                    }
+                    
+                    // Update peak amplitude metric
+                    if (data.resonanceData.peakAmplitude) {
+                        document.getElementById('amplitudeValue').textContent = data.resonanceData.peakAmplitude.toFixed(3);
+                    }
+                    
+                    // Update current Z value with last data point
+                    const lastDeltaZ = data.data[data.data.length - 1].deltaZ;
+                    document.getElementById('currentZValue').textContent = lastDeltaZ.toFixed(3);
+                    
+                    // Generate frequency domain data for the natural frequency chart
+                    generateFrequencyResponseData(data.resonanceData);
+                }
+                
+                showNotification("Historical session data loaded successfully", "success");
+            } else {
+                showNotification("No data available for this session", "error");
+            }
+        }
+        
+        // New function to generate frequency response data
+        function generateFrequencyResponseData(resonanceData) {
+            if (!resonanceData.naturalFrequency) {
+                console.log("No natural frequency data available");
+                return;
+            }
+            
+            // Check if we have frequency data directly from the server
+            if (resonanceData.frequencies && resonanceData.magnitudes && 
+                resonanceData.frequencies.length > 0 && resonanceData.magnitudes.length > 0) {
+                
+                console.log("Using server-provided frequency data");
+                
+                // Use the provided frequency and magnitude data
+                frequencyChart.data.labels = resonanceData.frequencies;
+                frequencyChart.data.datasets[0].data = resonanceData.magnitudes;
+                frequencyChart.update();
+                return;
+            }
+            
+            // Fallback: Generate synthetic frequency response curve if actual data isn't available
+            console.log("Generating synthetic frequency response curve");
+            
+            const fn = resonanceData.naturalFrequency;
+            const damping = resonanceData.dampingRatios && resonanceData.dampingRatios.length > 0 ? 
+                            resonanceData.dampingRatios[0] : 0.05;
+            
+            // Generate points along a frequency response curve
+            const freqMin = Math.max(0.1, fn * 0.1);
+            const freqMax = fn * 3;
+            const numPoints = 100;
+            const step = (freqMax - freqMin) / (numPoints - 1);
+            
+            const frequencies = [];
+            const amplitudes = [];
+            
+            for (let i = 0; i < numPoints; i++) {
+                const f = freqMin + (step * i);
+                frequencies.push(f.toFixed(2));
+                
+                // Calculate amplitude using frequency response formula for a damped oscillator
+                const r = f / fn; // frequency ratio
+                const amplitude = 1 / Math.sqrt(Math.pow(1 - r*r, 2) + Math.pow(2*damping*r, 2));
+                amplitudes.push(amplitude);
+            }
+            
+            frequencyChart.data.labels = frequencies;
+            frequencyChart.data.datasets[0].data = amplitudes;
+            frequencyChart.update();
+            
+            console.log("Frequency chart updated with points:", frequencies.length);
+        }
+        
         function updateVibrationData(data) {
             dataPointCount++;
             document.getElementById('dataPointCount').textContent = dataPointCount;
@@ -717,9 +859,19 @@
         function updateResonanceData(data) {
             // Update frequency chart if frequencies are available
             if (data.frequencies && data.magnitudes) {
+                console.log("Updating frequency chart with data points:", data.frequencies.length);
                 frequencyChart.data.labels = data.frequencies;
                 frequencyChart.data.datasets[0].data = data.magnitudes;
                 frequencyChart.update();
+            } else {
+                console.log("No frequency data available in resonance update");
+                // Try to generate synthetic data if we have a natural frequency
+                if (data.frequency) {
+                    generateFrequencyResponseData({
+                        naturalFrequency: data.frequency,
+                        dampingRatios: [data.damping]
+                    });
+                }
             }
             
             // Update engineering data
@@ -869,13 +1021,20 @@
         
         // Helper functions for session management
         function viewSession(sessionId) {
+            console.log("Viewing session:", sessionId);
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showNotification("Connection to server lost. Please refresh the page.", "error");
+                return;
+            }
+            
+            showNotification("Loading session data...", "info");
+            
             // Request session data
             socket.send(JSON.stringify({
                 type: 'get_session_data',
                 sessionId: sessionId
             }));
-            
-            showNotification("Loading session data...", "info");
         }
         
         function exportSession(sessionId) {
@@ -949,6 +1108,13 @@
         window.addEventListener('load', () => {
             initializeCharts();
             connectWebSocket();
+            
+            // Debug the frequency chart to ensure it's correctly initialized
+            console.log("Frequency chart initialized:", frequencyChart ? "Yes" : "No");
+            if (frequencyChart) {
+                console.log("Chart type:", frequencyChart.config.type);
+                console.log("Canvas:", document.getElementById('frequencyChart') ? "Found" : "Not found");
+            }
             
             // Auto-stop test when user navigates away
             window.addEventListener('beforeunload', (e) => {

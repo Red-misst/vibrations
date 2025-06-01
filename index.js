@@ -278,27 +278,77 @@ wss.on('connection', (ws, req) => {
           }));
         }
         
+        // Enhanced session data retrieval
         if (data.type === 'get_session_data') {
-          const session = await TestSession.findById(data.sessionId);
-          
-          // If resonance analysis isn't complete and the test is done, calculate it
-          if (!session.resonanceAnalysisComplete && !session.isActive) {
-            await calculateResonance(session._id);
-          }
-          
-          const updatedSession = await TestSession.findById(data.sessionId);
-          
-          ws.send(JSON.stringify({
-            type: 'session_data',
-            sessionId: data.sessionId,
-            data: updatedSession.zAxisData,
-            resonanceData: {
-              resonanceFrequencies: updatedSession.resonanceFrequencies,
-              dampingRatios: updatedSession.dampingRatios,
-              naturalFrequency: updatedSession.naturalFrequency,
-              peakAmplitude: updatedSession.peakAmplitude
+          try {
+            console.log(`Retrieving session data for: ${data.sessionId}`);
+            const session = await TestSession.findById(data.sessionId);
+            
+            if (!session) {
+              console.log(`Session not found: ${data.sessionId}`);
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Session not found'
+              }));
+              return;
             }
-          }));
+            
+            // If resonance analysis isn't complete and the test is done, calculate it
+            if (!session.resonanceAnalysisComplete && !session.isActive) {
+              console.log(`Calculating resonance for historical session: ${data.sessionId}`);
+              await calculateResonance(session._id);
+            }
+            
+            // Get the updated session with resonance data
+            const updatedSession = await TestSession.findById(data.sessionId);
+            
+            console.log(`Sending session data with ${updatedSession.zAxisData?.length || 0} data points`);
+            
+            // Enhanced response that includes both data and resonance analysis
+            const responseData = {
+              type: 'session_data',
+              sessionId: data.sessionId,
+              data: updatedSession.zAxisData || [],
+              resonanceData: {
+                resonanceFrequencies: updatedSession.resonanceFrequencies || [],
+                dampingRatios: updatedSession.dampingRatios || [],
+                naturalFrequency: updatedSession.naturalFrequency || 0,
+                peakAmplitude: updatedSession.peakAmplitude || 0
+              }
+            };
+            
+            // Include FFT data for frequency visualization if available
+            if (updatedSession.zAxisData && updatedSession.zAxisData.length >= 32) {
+              const zAxisRawData = updatedSession.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
+              const timestamps = updatedSession.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
+              
+              // Calculate sampling frequency
+              const avgSampleInterval = timestamps.length > 1 
+                ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
+                : 50; 
+              const samplingFreq = 1000 / avgSampleInterval;
+              
+              // Calculate FFT data
+              const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
+              
+              // Add to response
+              responseData.resonanceData.frequencies = fftResult.frequencies;
+              responseData.resonanceData.magnitudes = fftResult.magnitudes;
+            }
+            
+            // Also include mechanical properties if they exist
+            if (updatedSession.mechanicalProperties) {
+              responseData.resonanceData.mechanicalProperties = updatedSession.mechanicalProperties;
+            }
+            
+            ws.send(JSON.stringify(responseData));
+          } catch (error) {
+            console.error('Error retrieving session data:', error);
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Error retrieving session data'
+            }));
+          }
         }
         
       } catch (error) {
