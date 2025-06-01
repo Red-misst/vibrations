@@ -32,6 +32,55 @@
         .connected { background-color: #10b981; }
         .disconnected { background-color: #ef4444; }
         .recording { background-color: #f59e0b; animation: pulse 1s infinite; }
+
+        /* Natural frequency graph styles */
+        .frequency-graph {
+            position: relative;
+            height: 200px;
+            margin-bottom: 1rem;
+        }
+        
+        .engineering-data {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 12px;
+        }
+        
+        .engineering-data-item {
+            background: rgba(30, 41, 59, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.5);
+        }
+        
+        .engineering-data-item .title {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+        
+        .engineering-data-item .value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #e2e8f0;
+        }
+        
+        .formula-section {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: rgba(30, 41, 59, 0.7);
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.5);
+        }
+        
+        .formula {
+            font-family: 'Times New Roman', Times, serif;
+            padding: 0.5rem;
+            background: rgba(15, 23, 42, 0.7);
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-gray-100">
@@ -149,29 +198,105 @@
             </div>
         </div>
 
-        <!-- System Info -->
-        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+        <!-- Session Management Panel -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
-                <i class="fas fa-info-circle text-blue-400 mr-2"></i>
-                System Information
+                <i class="fas fa-folder-open text-blue-400 mr-2"></i>
+                Session Management
             </h3>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                    <span class="font-medium text-gray-300">Server:</span>
-                    <span class="text-gray-400 ml-2">vibrations.onrender.com</span>
+            <div class="flex flex-wrap gap-4">
+                <div class="flex-1">
+                    <label for="sessionName" class="block text-sm font-medium text-gray-400 mb-1">Session Name</label>
+                    <input type="text" id="sessionName" 
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
+                        placeholder="Enter test session name">
                 </div>
-                <div>
-                    <span class="font-medium text-gray-300">Protocol:</span>
-                    <span class="text-gray-400 ml-2">WSS (Secure WebSocket)</span>
+                <div class="flex items-end">
+                    <button id="startSessionBtn" 
+                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium flex items-center">
+                        <i class="fas fa-play mr-2"></i>
+                        Start Session
+                    </button>
                 </div>
-                <div>
-                    <span class="font-medium text-gray-300">Sampling Rate:</span>
-                    <span class="text-gray-400 ml-2">~20 Hz</span>
+            </div>
+            
+            <!-- Session List -->
+            <div class="mt-6">
+                <h4 class="text-md font-medium text-gray-300 mb-2">Recent Sessions</h4>
+                <div class="bg-gray-700 rounded overflow-hidden">
+                    <table class="min-w-full divide-y divide-gray-600">
+                        <thead class="bg-gray-800">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Start Time</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionList" class="divide-y divide-gray-600">
+                            <!-- Sessions will be populated here -->
+                        </tbody>
+                    </table>
                 </div>
-                <div>
-                    <span class="font-medium text-gray-300">Sensor Axis:</span>
-                    <span class="text-gray-400 ml-2">Z-Axis (Vertical)</span>
-                </div>
+            </div>
+        </div>
+
+        <!-- Natural Frequency Graph -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-wave-square text-green-400 mr-2"></i>
+                Natural Frequency Analysis
+            </h3>
+            <div class="frequency-graph">
+                <canvas id="frequencyChart" class="w-full h-full"></canvas>
+            </div>
+        </div>
+        
+        <!-- Mechanical Engineering Calculations -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-cogs text-yellow-400 mr-2"></i>
+                Mechanical Engineering Analysis
+            </h3>
+            <div class="engineering-data" id="engineeringData">
+                <!-- Will be populated with calculation results -->
+            </div>
+        </div>
+        
+        <!-- Formulas Documentation -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-calculator text-purple-400 mr-2"></i>
+                Vibration Analysis Formulas
+            </h3>
+            <div class="formula-section">
+                <h4 class="text-md font-medium text-gray-300 mb-2">Natural Frequency (fn)</h4>
+                <div class="formula">f_n = \frac{1}{2\pi} \sqrt{\frac{k}{m}}</div>
+                <p class="text-sm text-gray-400">Where k is stiffness (N/m) and m is mass (kg)</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Damping Ratio (ζ)</h4>
+                <div class="formula">\zeta = \frac{c}{2\sqrt{km}}</div>
+                <p class="text-sm text-gray-400">Where c is the damping coefficient (Ns/m)</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Q Factor</h4>
+                <div class="formula">Q = \frac{1}{2\zeta}</div>
+                <p class="text-sm text-gray-400">Quality factor - higher values mean less damping</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Logarithmic Decrement (δ)</h4>
+                <div class="formula">\delta = \ln\left(\frac{x_1}{x_{n+1}}\right) \cdot \frac{1}{n}</div>
+                <p class="text-sm text-gray-400">Where x1 and xn+1 are amplitudes n cycles apart</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">System Response</h4>
+                <div class="formula">X = \frac{F/k}{\sqrt{(1-r^2)^2 + (2\zeta r)^2}}</div>
+                <p class="text-sm text-gray-400">Where r is frequency ratio (f/fn) and F is applied force</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">RMS Value</h4>
+                <div class="formula">RMS = \sqrt{\frac{1}{N}\sum_{i=1}^{N}x_i^2}</div>
+                <p class="text-sm text-gray-400">Root Mean Square of vibration signal</p>
+                
+                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Crest Factor</h4>
+                <div class="formula">CF = \frac{|x|_{peak}}{x_{RMS}}</div>
+                <p class="text-sm text-gray-400">Ratio of peak value to RMS - indicates impulsive nature</p>
             </div>
         </div>
     </div>
@@ -183,6 +308,10 @@
         let isRecording = false;
         let dataPointCount = 0;
         let connectedDevices = new Set();
+        let frequencyData = {
+            frequencies: [],
+            amplitudes: []
+        };
 
         // Chart configurations for Z-axis data only
         const rawZChart = new Chart(document.getElementById('rawZChart'), {
@@ -279,6 +408,66 @@
             }
         });
 
+        // Initialize frequency chart
+        const frequencyChart = new Chart(document.getElementById('frequencyChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Frequency Response',
+                    data: [],
+                    borderColor: 'rgb(74, 222, 128)',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Frequency (Hz)',
+                            color: '#D1D5DB'
+                        },
+                        ticks: {
+                            color: '#D1D5DB'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude',
+                            color: '#D1D5DB'
+                        },
+                        ticks: {
+                            color: '#D1D5DB'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Frequency Response Analysis',
+                        color: '#D1D5DB'
+                    }
+                },
+                animation: false
+            }
+        });
+
         // WebSocket event handlers
         socket.addEventListener('open', () => {
             updateConnectionStatus('connected');
@@ -325,6 +514,18 @@
                         connectedDevices = new Set(data.devices);
                         updateDeviceDisplay();
                     }
+                    break;
+                case 'test_started':
+                    onTestStarted(data);
+                    break;
+                case 'test_stopped':
+                    onTestStopped(data);
+                    break;
+                case 'sessions_list':
+                    updateSessionsList(data.sessions);
+                    break;
+                case 'resonance_data':
+                    updateResonanceData(data);
                     break;
             }
         }
@@ -454,8 +655,11 @@
             rawZChart.data.datasets[0].data = [];
             deltaZChart.data.labels = [];
             deltaZChart.data.datasets[0].data = [];
+            frequencyChart.data.labels = [];
+            frequencyChart.data.datasets[0].data = [];
             rawZChart.update();
             deltaZChart.update();
+            frequencyChart.update();
             
             updateDeviceDisplay();
         });
@@ -478,6 +682,190 @@
             
             window.open(`/api/export/${currentSession}?format=csv`, '_blank');
         });
+        
+        // Add new helper functions for session management
+        function viewSession(sessionId) {
+            // Request session data
+            socket.send(JSON.stringify({
+                type: 'get_session_data',
+                sessionId: sessionId
+            }));
+        }
+        
+        function exportSession(sessionId) {
+            window.open(`/api/export/${sessionId}?format=csv`, '_blank');
+        }
+        
+        function stopSession(sessionId) {
+            if (confirm('Are you sure you want to stop this session?')) {
+                socket.send(JSON.stringify({
+                    type: 'stop_test'
+                }));
+            }
+        }
+        
+        // Initialize session management
+        document.getElementById('startSessionBtn').addEventListener('click', () => {
+            const sessionName = document.getElementById('sessionName').value.trim();
+            if (!sessionName) {
+                alert('Please enter a session name');
+                return;
+            }
+            
+            socket.send(JSON.stringify({
+                type: 'start_test',
+                sessionName: sessionName
+            }));
+        });
+        
+        // Load sessions on page load
+        window.addEventListener('load', () => {
+            // Request session list when socket is open
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'get_sessions'
+                }));
+            } else {
+                socket.addEventListener('open', () => {
+                    socket.send(JSON.stringify({
+                        type: 'get_sessions'
+                    }));
+                });
+            }
+        });
+        
+        function updateResonanceData(data) {
+            // Update frequency chart
+            frequencyChart.data.labels = data.frequencies;
+            frequencyChart.data.datasets[0].data = data.amplitudes;
+            frequencyChart.update('none');
+            
+            // Update engineering data
+            const engineeringDataEl = document.getElementById('engineeringData');
+            engineeringDataEl.innerHTML = '';
+            
+            // Create data items for each engineering calculation
+            const calculations = [
+                { title: 'Natural Frequency', value: `${data.frequency.toFixed(2)} Hz` },
+                { title: 'Natural Period', value: `${data.naturalPeriod.toFixed(4)} s` },
+                { title: 'Damping Ratio', value: `${data.damping.toFixed(4)}` },
+                { title: 'Q Factor', value: `${data.qFactor.toFixed(2)}` },
+                { title: 'Stiffness (est.)', value: `${data.stiffness.toFixed(2)} N/m` },
+                { title: 'Damping Coefficient', value: `${data.dampingCoefficient.toFixed(3)} Ns/m` },
+                { title: 'RMS Value', value: `${data.rms.toFixed(4)}` },
+                { title: 'Crest Factor', value: `${data.crestFactor.toFixed(2)}` },
+                { title: 'Bandwidth', value: `${data.bandwidth.toFixed(2)} Hz` },
+                { title: 'Resonance Magnification', value: `${data.resonanceMagnification.toFixed(2)}×` }
+            ];
+            
+            calculations.forEach(calc => {
+                const item = document.createElement('div');
+                item.className = 'engineering-data-item';
+                item.innerHTML = `
+                    <div class="title">${calc.title}</div>
+                    <div class="value">${calc.value}</div>
+                `;
+                engineeringDataEl.appendChild(item);
+            });
+        }
+        
+        function updateSessionsList(sessions) {
+            const sessionListEl = document.getElementById('sessionList');
+            sessionListEl.innerHTML = '';
+            
+            sessions.forEach(session => {
+                const row = document.createElement('tr');
+                
+                // Format date
+                const startDate = new Date(session.startTime);
+                const startTimeStr = startDate.toLocaleString();
+                
+                // Status badge class
+                const statusClass = session.isActive ? 'bg-green-600' : 'bg-blue-600';
+                
+                row.innerHTML = `
+                    <td class="px-4 py-3">${session.name}</td>
+                    <td class="px-4 py-3">${startTimeStr}</td>
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-1 text-xs rounded ${statusClass}">
+                            ${session.isActive ? 'Active' : 'Completed'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <button class="text-blue-400 hover:text-blue-300 mr-3" onclick="viewSession('${session._id}')">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="text-green-400 hover:text-green-300" onclick="exportSession('${session._id}')">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        ${session.isActive ? 
+                          `<button class="text-red-400 hover:text-red-300 ml-3" onclick="stopSession('${session._id}')">
+                              <i class="fas fa-stop"></i>
+                           </button>` : ''}
+                    </td>
+                `;
+                
+                sessionListEl.appendChild(row);
+            });
+        }
+        
+        function onTestStarted(data) {
+            currentSession = data.sessionId;
+            isRecording = true;
+            dataPointCount = 0;
+            
+            // Update UI
+            document.getElementById('startSessionBtn').disabled = true;
+            document.getElementById('startSessionBtn').classList.add('opacity-50');
+            document.getElementById('sessionName').disabled = true;
+            
+            // Clear charts
+            rawZChart.data.labels = [];
+            rawZChart.data.datasets[0].data = [];
+            deltaZChart.data.labels = [];
+            deltaZChart.data.datasets[0].data = [];
+            frequencyChart.data.labels = [];
+            frequencyChart.data.datasets[0].data = [];
+            
+            rawZChart.update();
+            deltaZChart.update();
+            frequencyChart.update();
+            
+            // Show notification
+            alert(`Session "${data.sessionName}" started successfully!`);
+            
+            // Request updated session list
+            socket.send(JSON.stringify({
+                type: 'get_sessions'
+            }));
+        }
+        
+        function onTestStopped(data) {
+            isRecording = false;
+            
+            // Update UI
+            document.getElementById('startSessionBtn').disabled = false;
+            document.getElementById('startSessionBtn').classList.remove('opacity-50');
+            document.getElementById('sessionName').disabled = false;
+            
+            // Show notification
+            alert('Session stopped. Analyzing data...');
+            
+            // Request resonance analysis
+            socket.send(JSON.stringify({
+                type: 'get_resonance_data',
+                sessionId: data.sessionId
+            }));
+            
+            // Request updated session list
+            socket.send(JSON.stringify({
+                type: 'get_sessions'
+            }));
+        }
     </script>
+    
+    <!-- MathJax for rendering math formulas properly -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </body>
 </html>

@@ -78,7 +78,18 @@ const TestSessionSchema = new mongoose.Schema({
   dampingRatios: [Number],
   naturalFrequency: Number,       // Hz
   peakAmplitude: Number,
-  resonanceAnalysisComplete: { type: Boolean, default: false }
+  resonanceAnalysisComplete: { type: Boolean, default: false },
+  // New mechanical properties
+  mechanicalProperties: {
+    naturalPeriod: Number,        // seconds
+    stiffness: Number,            // N/m
+    dampingCoefficient: Number,   // Ns/m
+    qFactor: Number,              // Quality factor
+    rms: Number,                  // Root Mean Square
+    crestFactor: Number,          // Crest Factor
+    bandwidth: Number,            // Hz
+    resonanceMagnification: Number // Magnification factor at resonance
+  }
 });
 
 const TestSession = mongoose.model('TestSession', TestSessionSchema);
@@ -121,7 +132,7 @@ wss.on('connection', (ws, req) => {
       console.log('Web client disconnected');
     });
     
-    ws.on('message', async (message) => {
+    ws.on('message', async (message) => {  
       try {
         const data = JSON.parse(message);
         
@@ -339,7 +350,7 @@ async function calculateResonance(sessionId) {
     
     // Extract Z-axis raw values for frequency analysis
     const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
-    const timestamps = session.zAxisData.map(d => d.timestamp || Date.now());
+    const timestamps = session.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
     
     if (zAxisRawData.length < 32) {
       console.log('Insufficient Z-axis data for FFT analysis');
@@ -358,21 +369,63 @@ async function calculateResonance(sessionId) {
     // Calculate damping ratio using logarithmic decrement
     const dampingRatio = calculateDampingRatio(zAxisRawData);
     
+    // Calculate natural period and stiffness
+    const naturalFrequency = fftResult.dominantFreq;
+    const naturalPeriod = naturalFrequency > 0 ? 1 / naturalFrequency : 0;
+    
+    // Estimate mass-spring-damper parameters
+    // Assuming unit mass for simplification
+    const unitMass = 1.0;  // kg
+    const stiffness = unitMass * Math.pow(2 * Math.PI * naturalFrequency, 2); // N/m
+    const dampingCoefficient = dampingRatio * 2 * Math.sqrt(unitMass * stiffness); // Ns/m
+    
+    // Calculate Q factor (quality factor)
+    const qFactor = dampingRatio > 0 ? 1 / (2 * dampingRatio) : 0;
+    
+    // Calculate time domain characteristics
+    const peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
+    const rms = Math.sqrt(zAxisRawData.reduce((sum, val) => sum + val * val, 0) / zAxisRawData.length);
+    const crestFactor = peakAmplitude / (rms > 0 ? rms : 1);
+    
+    // Calculate frequency spectrum characteristics
+    const bandwidth = dampingRatio * naturalFrequency;
+    const resonanceMagnification = qFactor;
+    
     // Update session with calculated values
-    session.naturalFrequency = fftResult.dominantFreq;
-    session.resonanceFrequencies = [fftResult.dominantFreq];
+    session.naturalFrequency = naturalFrequency;
+    session.resonanceFrequencies = [naturalFrequency];
     session.dampingRatios = [dampingRatio];
-    session.peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
+    session.peakAmplitude = peakAmplitude;
     session.resonanceAnalysisComplete = true;
+    
+    // Add new mechanical properties
+    session.mechanicalProperties = {
+      naturalPeriod,
+      stiffness,
+      dampingCoefficient,
+      qFactor,
+      rms,
+      crestFactor,
+      bandwidth,
+      resonanceMagnification
+    };
     
     await session.save();
     
-    console.log(`Z-axis resonance calculated - Freq: ${fftResult.dominantFreq.toFixed(2)}Hz, Damping: ${dampingRatio.toFixed(4)}`);
+    console.log(`Z-axis resonance calculated - Freq: ${naturalFrequency.toFixed(2)}Hz, Damping: ${dampingRatio.toFixed(4)}`);
     
     return {
-      frequency: fftResult.dominantFreq,
+      frequency: naturalFrequency,
       damping: dampingRatio,
-      amplitude: session.peakAmplitude
+      amplitude: peakAmplitude,
+      qFactor: qFactor,
+      naturalPeriod: naturalPeriod,
+      stiffness: stiffness,
+      dampingCoefficient: dampingCoefficient,
+      rms: rms,
+      crestFactor: crestFactor,
+      bandwidth: bandwidth,
+      resonanceMagnification: resonanceMagnification
     };
     
   } catch (error) {
@@ -532,6 +585,34 @@ app.get('/api/export/:sessionId', async (req, res) => {
         }
       });
     }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add new API endpoint for session management
+app.get('/api/sessions/:id', async (req, res) => {
+  try {
+    const session = await TestSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    res.json(session);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add endpoint to retrieve only recent sessions
+app.get('/api/sessions/recent/:limit', async (req, res) => {
+  try {
+    const limit = parseInt(req.params.limit) || 5;
+    const sessions = await TestSession.find()
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    
+    res.json(sessions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

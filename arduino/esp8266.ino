@@ -12,7 +12,7 @@ const char* password = "YOUR_PASSWORD";
 // WebSocket Server Configuration - Updated for secure connection
 const char* host = "vibrations.onrender.com";
 const int port = 443;  // HTTPS port for secure connection
-const char* url = "/esp";  // Changed to specific ESP path
+const char* url = "/esp8266";  // Changed to specific ESP8266 path for improved routing
 
 // Sensor Configuration
 MPU9250_asukiaaa mySensor;
