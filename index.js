@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +21,30 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-app.use(express.static('public'));
+
+// Define public directory path and check if it exists
+const publicPath = path.join(__dirname, 'public');
+if (!fs.existsSync(publicPath)) {
+  console.log(`Public directory not found at: ${publicPath}`);
+  // Create the directory if it doesn't exist
+  fs.mkdirSync(publicPath, { recursive: true });
+}
+
+// Add verbose logging for static file serving
+app.use(express.static(publicPath));
+console.log(`Serving static files from: ${publicPath}`);
+
+// Ensure index.html exists before trying to serve it
+app.get('/', (req, res) => {
+  const indexPath = path.join(publicPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    console.log(`Serving index.html from: ${indexPath}`);
+    res.sendFile(indexPath);
+  } else {
+    console.log(`index.html not found at: ${indexPath}`);
+    res.status(404).send('Welcome to Z-Axis Vibration Monitor API. Web interface is not available.');
+  }
+});
 
 // Environment validation
 if (!process.env.MONGODB_URI) {
@@ -502,10 +526,6 @@ app.get('/api/export/:sessionId', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;

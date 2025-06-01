@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-Axis Vibration Monitor - Real-time Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .metric-card {
+            transition: all 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .connected { background-color: #10b981; }
+        .disconnected { background-color: #ef4444; }
+        .recording { background-color: #f59e0b; animation: pulse 1s infinite; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-gray-100">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-100 mb-2">
+                <i class="fas fa-wave-square text-blue-400 mr-3"></i>
+                Z-Axis Vibration Monitor
+            </h1>
+            <p class="text-gray-300">Real-time vertical vibration analysis with frequency and damping calculations</p>
+        </div>
+
+        <!-- Connection Status Bar -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center">
+                        <span class="status-indicator" id="connectionIndicator"></span>
+                        <span class="font-medium text-gray-300">Server:</span>
+                        <span id="connectionStatus" class="ml-2 font-semibold">Connecting...</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="status-indicator" id="deviceIndicator"></span>
+                        <span class="font-medium text-gray-300">Device:</span>
+                        <span id="deviceStatus" class="ml-2 font-semibold">No devices</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-400">Session:</span>
+                    <span id="sessionId" class="text-sm font-mono bg-gray-700 text-gray-300 px-2 py-1 rounded">None</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex space-x-4">
+                    <button id="startTest" 
+                            class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center">
+                        <i class="fas fa-play mr-2"></i>
+                        Start Test
+                    </button>
+                    <button id="stopTest" 
+                            class="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center" 
+                            disabled>
+                        <i class="fas fa-stop mr-2"></i>
+                        Stop Test
+                    </button>
+                    <button id="exportData" 
+                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center">
+                        <i class="fas fa-download mr-2"></i>
+                        Export Data
+                    </button>
+                </div>
+                <div class="text-sm text-gray-400">
+                    <span id="dataPointCount">0</span> Z-axis data points collected
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
+                <div class="text-3xl font-bold text-blue-400 mb-2" id="frequencyValue">0.00</div>
+                <div class="text-gray-300 font-medium">Frequency (Hz)</div>
+                <div class="text-xs text-gray-500 mt-1">Dominant Z-axis frequency</div>
+            </div>
+            <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
+                <div class="text-3xl font-bold text-green-400 mb-2" id="dampingValue">0.0000</div>
+                <div class="text-gray-300 font-medium">Damping Ratio</div>
+                <div class="text-xs text-gray-500 mt-1">Vertical damping</div>
+            </div>
+            <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
+                <div class="text-3xl font-bold text-purple-400 mb-2" id="amplitudeValue">0.000</div>
+                <div class="text-gray-300 font-medium">Amplitude (g)</div>
+                <div class="text-xs text-gray-500 mt-1">Peak Z-axis acceleration</div>
+            </div>
+            <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
+                <div class="text-3xl font-bold text-orange-400 mb-2" id="currentZValue">0.000</div>
+                <div class="text-gray-300 font-medium">Current Z-Delta (g)</div>
+                <div class="text-xs text-gray-500 mt-1">Live vertical vibration</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Z-Axis Raw Data Chart -->
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                    <i class="fas fa-chart-line text-blue-400 mr-2"></i>
+                    Z-Axis Raw Acceleration
+                </h3>
+                <div class="relative">
+                    <canvas id="rawZChart" class="w-full h-64"></canvas>
+                </div>
+                <div class="mt-4 text-center text-sm text-gray-400">
+                    Raw vertical acceleration (g)
+                </div>
+            </div>
+
+            <!-- Z-Axis Delta Chart -->
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                    <i class="fas fa-tachometer-alt text-purple-400 mr-2"></i>
+                    Z-Axis Vibration Delta
+                </h3>
+                <div class="relative">
+                    <canvas id="deltaZChart" class="w-full h-64"></canvas>
+                </div>
+                <div class="mt-4 text-center text-sm text-gray-400">
+                    Vertical vibration intensity changes
+                </div>
+            </div>
+        </div>
+
+        <!-- System Info -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-info-circle text-blue-400 mr-2"></i>
+                System Information
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                    <span class="font-medium text-gray-300">Server:</span>
+                    <span class="text-gray-400 ml-2">vibrations.onrender.com</span>
+                </div>
+                <div>
+                    <span class="font-medium text-gray-300">Protocol:</span>
+                    <span class="text-gray-400 ml-2">WSS (Secure WebSocket)</span>
+                </div>
+                <div>
+                    <span class="font-medium text-gray-300">Sampling Rate:</span>
+                    <span class="text-gray-400 ml-2">~20 Hz</span>
+                </div>
+                <div>
+                    <span class="font-medium text-gray-300">Sensor Axis:</span>
+                    <span class="text-gray-400 ml-2">Z-Axis (Vertical)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection to secure server
+        const socket = new WebSocket('wss://vibrations.onrender.com');
+        let currentSession = null;
+        let isRecording = false;
+        let dataPointCount = 0;
+        let connectedDevices = new Set();
+
+        // Chart configurations for Z-axis data only
+        const rawZChart = new Chart(document.getElementById('rawZChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Raw Z-Axis',
+                    data: [],
+                    borderColor: 'rgb(96, 165, 250)',
+                    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: false,
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Acceleration (g)',
+                            color: '#D1D5DB'
+                        },
+                        ticks: {
+                            color: '#D1D5DB'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                animation: false
+            }
+        });
+
+        const deltaZChart = new Chart(document.getElementById('deltaZChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Z-Axis Delta',
+                    data: [],
+                    borderColor: 'rgb(196, 181, 253)',
+                    backgroundColor: 'rgba(196, 181, 253, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: false,
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Delta Z (g)',
+                            color: '#D1D5DB'
+                        },
+                        ticks: {
+                            color: '#D1D5DB'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.3)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                animation: false
+            }
+        });
+
+        // WebSocket event handlers
+        socket.addEventListener('open', () => {
+            updateConnectionStatus('connected');
+            console.log('Connected to secure WebSocket server');
+        });
+
+        socket.addEventListener('close', () => {
+            updateConnectionStatus('disconnected');
+            console.log('Disconnected from server');
+        });
+
+        socket.addEventListener('error', (error) => {
+            updateConnectionStatus('error');
+            console.error('WebSocket error:', error);
+        });
+
+        socket.addEventListener('message', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            } catch (error) {
+                console.error('Error parsing message:', error);
+            }
+        });
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'vibration_data':
+                    updateVibrationData(data);
+                    break;
+                case 'session_status':
+                    updateSessionStatus(data);
+                    break;
+                case 'device_status':
+                    updateDeviceStatus(data);
+                    break;
+            }
+        }
+
+        function updateVibrationData(data) {
+            dataPointCount++;
+            document.getElementById('dataPointCount').textContent = dataPointCount;
+
+            // Update real-time metrics
+            if (data.frequency !== undefined) {
+                document.getElementById('frequencyValue').textContent = data.frequency.toFixed(2);
+            }
+            if (data.damping !== undefined) {
+                document.getElementById('dampingValue').textContent = data.damping.toFixed(4);
+            }
+            if (data.amplitude !== undefined) {
+                document.getElementById('amplitudeValue').textContent = data.amplitude.toFixed(3);
+            }
+            if (data.deltaZ !== undefined) {
+                document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
+            }
+
+            // Update charts with Z-axis data
+            const time = new Date(data.timestamp).toLocaleTimeString();
+            
+            // Add data to raw Z-axis chart
+            rawZChart.data.labels.push(time);
+            rawZChart.data.datasets[0].data.push(data.rawZ || 0);
+
+            // Add data to delta Z-axis chart
+            deltaZChart.data.labels.push(time);
+            deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
+
+            // Keep only last 50 data points
+            const maxPoints = 50;
+            if (rawZChart.data.labels.length > maxPoints) {
+                rawZChart.data.labels.shift();
+                rawZChart.data.datasets[0].data.shift();
+                deltaZChart.data.labels.shift();
+                deltaZChart.data.datasets[0].data.shift();
+            }
+
+            rawZChart.update('none');
+            deltaZChart.update('none');
+        }
+
+        function updateConnectionStatus(status) {
+            const indicator = document.getElementById('connectionIndicator');
+            const statusText = document.getElementById('connectionStatus');
+            
+            indicator.className = 'status-indicator';
+            
+            switch (status) {
+                case 'connected':
+                    indicator.classList.add('connected');
+                    statusText.textContent = 'Connected';
+                    statusText.className = 'ml-2 font-semibold text-green-400';
+                    break;
+                case 'disconnected':
+                    indicator.classList.add('disconnected');
+                    statusText.textContent = 'Disconnected';
+                    statusText.className = 'ml-2 font-semibold text-red-400';
+                    break;
+                case 'error':
+                    indicator.classList.add('disconnected');
+                    statusText.textContent = 'Connection Error';
+                    statusText.className = 'ml-2 font-semibold text-red-400';
+                    break;
+            }
+        }
+
+        function updateSessionStatus(data) {
+            currentSession = data.sessionId;
+            document.getElementById('sessionId').textContent = data.sessionId || 'None';
+            
+            if (data.connectedDevices && data.connectedDevices.length > 0) {
+                connectedDevices = new Set(data.connectedDevices);
+                updateDeviceDisplay();
+            }
+        }
+
+        function updateDeviceStatus(data) {
+            if (data.status === 'connected') {
+                connectedDevices.add(data.deviceId);
+            } else {
+                connectedDevices.delete(data.deviceId);
+            }
+            updateDeviceDisplay();
+        }
+
+        function updateDeviceDisplay() {
+            const deviceIndicator = document.getElementById('deviceIndicator');
+            const deviceStatus = document.getElementById('deviceStatus');
+            
+            deviceIndicator.className = 'status-indicator';
+            
+            if (connectedDevices.size > 0) {
+                deviceIndicator.classList.add(isRecording ? 'recording' : 'connected');
+                deviceStatus.textContent = `${connectedDevices.size} device${connectedDevices.size > 1 ? 's' : ''} connected`;
+                deviceStatus.className = 'ml-2 font-semibold text-green-400';
+            } else {
+                deviceIndicator.classList.add('disconnected');
+                deviceStatus.textContent = 'No devices';
+                deviceStatus.className = 'ml-2 font-semibold text-gray-500';
+            }
+        }
+
+        // Control handlers
+        document.getElementById('startTest').addEventListener('click', () => {
+            if (connectedDevices.size === 0) {
+                alert('No devices connected. Please ensure your ESP8266 is connected.');
+                return;
+            }
+            
+            socket.send(JSON.stringify({ 
+                type: 'start_test',
+                sessionName: 'Z-Axis Test ' + new Date().toLocaleString()
+            }));
+            isRecording = true;
+            dataPointCount = 0;
+            
+            document.getElementById('startTest').disabled = true;
+            document.getElementById('stopTest').disabled = false;
+            
+            // Clear charts
+            rawZChart.data.labels = [];
+            rawZChart.data.datasets[0].data = [];
+            deltaZChart.data.labels = [];
+            deltaZChart.data.datasets[0].data = [];
+            rawZChart.update();
+            deltaZChart.update();
+            
+            updateDeviceDisplay();
+        });
+
+        document.getElementById('stopTest').addEventListener('click', () => {
+            socket.send(JSON.stringify({ type: 'stop_test' }));
+            isRecording = false;
+            
+            document.getElementById('startTest').disabled = false;
+            document.getElementById('stopTest').disabled = true;
+            
+            updateDeviceDisplay();
+        });
+
+        document.getElementById('exportData').addEventListener('click', () => {
+            if (!currentSession) {
+                alert('No session data available for export.');
+                return;
+            }
+            
+            window.open(`/api/export/${currentSession}?format=csv`, '_blank');
+        });
+    </script>
+</body>
+</html>

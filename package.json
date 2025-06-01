@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "description": "Z-Axis Vibration Monitoring System with Real-time Analysis",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "prebuild": "mkdir -p ./public && cp -r ./src/public/* ./public/ || true",
+    "build": "npm run prebuild",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

@@ -1,0 +1,70 @@
+/**
+ * Vibration Monitor - Main Styles
+ * Custom CSS that extends Tailwind for specific styling needs
+ */
+
+/* Custom Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Enhanced focus states for better accessibility */
+input:focus, 
+button:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+}
+
+/* Additional responsive adjustments */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  
+  h1 {
+    font-size: 1.75rem;
+  }
+  
+  .p-6 {
+    padding: 1rem;
+  }
+}
+
+/* Print styles for data exports */
+@media print {
+  body {
+    background-color: white;
+    color: black;
+  }
+  
+  .container {
+    max-width: 100%;
+    margin: 0;
+  }
+  
+  .bg-gray-800,
+  .bg-gray-900 {
+    background-color: white;
+    color: black;
+    border: 1px solid #ddd;
+  }
+  
+  h1, h2, h3, h4 {
+    color: black;
+  }
+  
+  button, 
+  .connection-status {
+    display: none;
+  }
+}

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: z-axis-vibration-monitor
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: MONGODB_URI
+        sync: false
+    staticPublishPath: ./public
