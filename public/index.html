@@ -178,7 +178,7 @@
 
     <script>
         // WebSocket connection to secure server
-        const socket = new WebSocket('wss://vibrations.onrender.com');
+        const socket = new WebSocket('wss://vibrations.onrender.com/web');
         let currentSession = null;
         let isRecording = false;
         let dataPointCount = 0;
@@ -283,6 +283,11 @@
         socket.addEventListener('open', () => {
             updateConnectionStatus('connected');
             console.log('Connected to secure WebSocket server');
+            
+            // Request current device list when connected
+            socket.send(JSON.stringify({
+                type: 'get_device_list'
+            }));
         });
 
         socket.addEventListener('close', () => {
@@ -314,6 +319,12 @@
                     break;
                 case 'device_status':
                     updateDeviceStatus(data);
+                    break;
+                case 'device_list':
+                    if (data.devices && data.devices.length > 0) {
+                        connectedDevices = new Set(data.devices);
+                        updateDeviceDisplay();
+                    }
                     break;
             }
         }

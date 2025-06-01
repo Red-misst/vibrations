@@ -125,6 +125,15 @@ wss.on('connection', (ws, req) => {
       try {
         const data = JSON.parse(message);
         
+        // Add handler for device list request
+        if (data.type === 'get_device_list') {
+          ws.send(JSON.stringify({
+            type: 'device_list',
+            devices: Array.from(espClients.keys())
+          }));
+          return;
+        }
+        
         if (data.type === 'start_test') {
           currentSession = new TestSession({ 
             name: data.sessionName,

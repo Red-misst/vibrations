@@ -12,7 +12,7 @@ const char* password = "YOUR_PASSWORD";
 // WebSocket Server Configuration - Updated for secure connection
 const char* host = "vibrations.onrender.com";
 const int port = 443;  // HTTPS port for secure connection
-const char* url = "/";
+const char* url = "/esp";  // Changed to specific ESP path
 
 // Sensor Configuration
 MPU9250_asukiaaa mySensor;
@@ -45,8 +45,12 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         Serial.printf("WebSocket Connected to: %s\n", payload);
         digitalWrite(LED_BUILTIN, LOW);
         
-        // Send connection message with device info
+        // Send connection message with device info - ensure this happens immediately
         String connectMsg = "{\"type\":\"device_connected\",\"deviceId\":\"" + deviceId + "\"}";
+        webSocket.sendTXT(connectMsg);
+        
+        // Send a second time after a short delay to ensure it's received
+        delay(500);
         webSocket.sendTXT(connectMsg);
         break;
       }
