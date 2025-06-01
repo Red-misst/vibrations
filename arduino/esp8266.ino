@@ -2,38 +2,54 @@
 #include <MPU9250_asukiaaa.h>
 #include <ESP8266WiFi.h>
 #include <WebSocketsClient.h>
-#include <ArduinoJson.h>  // Install: Library: ArduinoJson by Benoit Blanchon
+#include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 
-// WiFi Configuration - Update with your network info
+// WiFi Configuration
 const char* ssid = "YOUR_SSID";
 const char* password = "YOUR_PASSWORD";
 
-// WebSocket Server Configuration - Update with your server IP address
-const char* host = "192.168.1.100";  // Change to the IP address of your Node.js server
-const int port = 3000;               // Default port of your Node.js server
+// WebSocket Server Configuration - Updated for secure connection
+const char* host = "vibrations.onrender.com";
+const int port = 443;  // HTTPS port for secure connection
+const char* url = "/";
 
 // Sensor Configuration
 MPU9250_asukiaaa mySensor;
 WebSocketsClient webSocket;
 
-// Vibration Detection Configuration
-const float vibrationThreshold = 0.3;  // Adjust this value to increase/decrease sensitivity
-float prevAccelX = 0, prevAccelY = 0, prevAccelZ = 0;
+// Z-axis Vibration Detection (vertical movement only)
+const float vibrationThreshold = 0.2;
+float prevAccelZ = 0;
 unsigned long lastDetectionTime = 0;
-const unsigned long debounceDelay = 200;  // Minimum time between vibration detections (milliseconds)
+const unsigned long debounceDelay = 100;  // Faster sampling for frequency analysis
 
-// Status indicators
-const int LED_WIFI = LED_BUILTIN;  // Built-in LED for WiFi status
-const int LED_DATA = 2;            // GPIO2 (adjust as needed) for data transmission
+// Z-axis frequency calculation buffers
+const int BUFFER_SIZE = 32;
+float zAxisBuffer[BUFFER_SIZE];
+int bufferIndex = 0;
+unsigned long lastSampleTime = 0;
+const unsigned long sampleInterval = 50; // 20Hz sampling
+
+// Device identification
+String deviceId = "ESP8266_" + String(ESP.getChipId(), HEX);
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
       Serial.println("WebSocket Disconnected");
+      digitalWrite(LED_BUILTIN, HIGH);
       break;
     case WStype_CONNECTED:
-      Serial.printf("WebSocket Connected to: %s\n", payload);
-      break;
+      {
+        Serial.printf("WebSocket Connected to: %s\n", payload);
+        digitalWrite(LED_BUILTIN, LOW);
+        
+        // Send connection message with device info
+        String connectMsg = "{\"type\":\"device_connected\",\"deviceId\":\"" + deviceId + "\"}";
+        webSocket.sendTXT(connectMsg);
+        break;
+      }
     case WStype_TEXT:
       Serial.printf("Received: %s\n", payload);
       break;
@@ -46,80 +62,77 @@ void setup() {
   Serial.begin(115200);
   Wire.begin(4, 5); // SDA = GPIO4, SCL = GPIO5
 
-  // Initialize status LEDs
-  pinMode(LED_WIFI, OUTPUT);
-  pinMode(LED_DATA, OUTPUT);
-  
-  // Initially set LEDs to indicate "not connected" state
-  digitalWrite(LED_WIFI, HIGH); // Built-in LED is inverted (LOW = ON)
-  digitalWrite(LED_DATA, LOW);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
 
-  // Initialize MPU9250 sensor
+  // Initialize sensor
   mySensor.setWire(&Wire);
   mySensor.beginAccel();
 
   // Connect to WiFi
-  delay(1000);
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    // Blink the WiFi LED while connecting
-    digitalWrite(LED_WIFI, !digitalRead(LED_WIFI));
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
   
-  // Connected to WiFi
-  digitalWrite(LED_WIFI, LOW); // Turn LED on to indicate WiFi connected
+  digitalWrite(LED_BUILTIN, LOW);
   Serial.println("\nWiFi connected");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Connect to WebSocket server
-  webSocket.begin(host, port, "/");
+  // Setup secure WebSocket connection
+  webSocket.beginSSL(host, port, url);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
-
-  Serial.println("MPU9250 Vibration WebSocket Logger Ready");
+  
+  Serial.println("Z-Axis Vibration Monitor Ready - Device ID: " + deviceId);
 }
 
 void loop() {
   webSocket.loop();
 
-  mySensor.accelUpdate();
+  // Sample at regular intervals for frequency analysis
+  if (millis() - lastSampleTime >= sampleInterval) {
+    mySensor.accelUpdate();
 
-  float ax = mySensor.accelX();
-  float ay = mySensor.accelY();
-  float az = mySensor.accelZ();
+    // Only read Z-axis (vertical) acceleration
+    float az = mySensor.accelZ();
 
-  float deltaX = abs(ax - prevAccelX);
-  float deltaY = abs(ay - prevAccelY);
-  float deltaZ = abs(az - prevAccelZ);
+    // Calculate delta for Z-axis only
+    float deltaZ = abs(az - prevAccelZ);
 
-  bool isVibration = (deltaX > vibrationThreshold || deltaY > vibrationThreshold || deltaZ > vibrationThreshold);
+    // Store Z-axis data for frequency analysis
+    zAxisBuffer[bufferIndex] = az;
+    bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 
-  if (isVibration && millis() - lastDetectionTime > debounceDelay) {
-    String payload = "{";
-    payload += "\"timestamp\":\"" + String(millis()) + "\",";
-    payload += "\"deltaX\":" + String(deltaX, 3) + ",";
-    payload += "\"deltaY\":" + String(deltaY, 3) + ",";
-    payload += "\"deltaZ\":" + String(deltaZ, 3);
-    payload += "}";
+    // Detect significant Z-axis vibration
+    bool isVibration = (deltaZ > vibrationThreshold);
 
-    Serial.println("VIBRATION DETECTED: " + payload);
-    webSocket.sendTXT(payload);
-    lastDetectionTime = millis();
-    
-    // Flash data LED to indicate transmission
-    digitalWrite(LED_DATA, HIGH);
-    delay(20);
-    digitalWrite(LED_DATA, LOW);
+    if (isVibration && millis() - lastDetectionTime > debounceDelay) {
+      // Z-axis focused data packet
+      StaticJsonDocument<150> doc;
+      doc["type"] = "vibration_data";
+      doc["deviceId"] = deviceId;
+      doc["timestamp"] = millis();
+      doc["deltaZ"] = round(deltaZ * 1000) / 1000.0; // 3 decimal places
+      doc["rawZ"] = round(az * 1000) / 1000.0;
+      doc["magnitude"] = deltaZ; // For Z-axis only, magnitude equals deltaZ
+
+      String payload;
+      serializeJson(doc, payload);
+
+      Serial.println("Z-AXIS VIBRATION: " + payload);
+      webSocket.sendTXT(payload);
+      lastDetectionTime = millis();
+    }
+
+    prevAccelZ = az;
+    lastSampleTime = millis();
   }
 
-  prevAccelX = ax;
-  prevAccelY = ay;
-  prevAccelZ = az;
-
-  delay(50);
+  delay(10); // Small delay to prevent overwhelming the system
 }

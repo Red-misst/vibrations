@@ -1,4 +1,4 @@
-# MongoDB Configuration for Vibration Monitor
+# MongoDB Configuration for Z-Axis Vibration Monitor
 
 ## Setup Instructions
 
@@ -27,7 +27,7 @@
    - Host: localhost
    - Port: 27017
    - Database: vibration_monitor
-   - Collections: testsessions, vibrationdatas
+   - Collections: testsessions
 
 4. **Connection String**
    ```
@@ -44,20 +44,38 @@
   startTime: Date,        // When the test started
   endTime: Date,          // When the test ended (null if active)
   isActive: Boolean,      // Whether the test is currently running
-  createdAt: Date         // Record creation timestamp
+  createdAt: Date,        // Record creation timestamp
+  
+  // Z-axis data stored as an array within the session document
+  zAxisData: [
+    {
+      timestamp: String,  // ESP8266 timestamp (millis)
+      deltaZ: Number,     // Z-axis vibration delta (vertical movement change)
+      rawZ: Number,       // Raw Z-axis acceleration value
+      receivedAt: Date    // Server reception timestamp
+    }
+  ],
+  
+  // Resonance analysis results for Z-axis
+  resonanceFrequencies: [Number], // Detected resonance frequencies (Hz)
+  dampingRatios: [Number],        // Damping ratio for each resonance
+  naturalFrequency: Number,       // Primary natural frequency (Hz)
+  peakAmplitude: Number,          // Maximum Z-axis amplitude observed
+  resonanceAnalysisComplete: Boolean // Whether analysis has been performed
 }
 ```
 
-### VibrationData Collection
+### VibrationData Collection (Individual Records)
 ```javascript
 {
   _id: ObjectId,
   sessionId: ObjectId,    // Reference to TestSession
-  timestamp: String,      // ESP8266 timestamp (millis)
-  deltaX: Number,         // X-axis vibration delta
-  deltaY: Number,         // Y-axis vibration delta
+  deviceId: String,       // ESP8266 device identifier
+  timestamp: Date,        // Measurement timestamp
   deltaZ: Number,         // Z-axis vibration delta
-  receivedAt: Date        // Server reception timestamp
+  rawZ: Number,          // Raw Z-axis acceleration
+  magnitude: Number,      // Vibration magnitude (same as deltaZ for single axis)
+  receivedAt: Date       // Server reception timestamp
 }
 ```
 
@@ -78,18 +96,58 @@ use vibration_monitor
 db.testsessions.find().pretty()
 ```
 
-### View vibration data for a specific session
+### View Z-axis data for a specific session
 ```javascript
-db.vibrationdatas.find({sessionId: ObjectId("your_session_id")}).pretty()
+db.testsessions.findOne(
+  {_id: ObjectId("your_session_id")}, 
+  {zAxisData: 1, resonanceFrequencies: 1, naturalFrequency: 1}
+)
 ```
 
-### Count total vibration readings
+### Get sessions with completed resonance analysis
 ```javascript
-db.vibrationdatas.count()
+db.testsessions.find({resonanceAnalysisComplete: true}).pretty()
+```
+
+### Count Z-axis data points in a session
+```javascript
+db.testsessions.aggregate([
+  {$match: {_id: ObjectId("your_session_id")}},
+  {$project: {dataPointCount: {$size: "$zAxisData"}}}
+])
+```
+
+### Get vibration data by device
+```javascript
+db.vibrationdatas.find({deviceId: "ESP8266_XXXXXX"}).sort({timestamp: -1})
+```
+
+### Find sessions with high amplitude vibrations
+```javascript
+db.testsessions.find({peakAmplitude: {$gt: 1.0}}).sort({peakAmplitude: -1})
+```
+
+### Export Z-axis data to analyze frequency content
+```javascript
+db.testsessions.aggregate([
+  {$match: {_id: ObjectId("your_session_id")}},
+  {$unwind: "$zAxisData"},
+  {$project: {
+    timestamp: "$zAxisData.timestamp",
+    rawZ: "$zAxisData.rawZ",
+    deltaZ: "$zAxisData.deltaZ"
+  }}
+])
 ```
 
 ### Delete all data (for testing)
 ```javascript
 db.testsessions.deleteMany({})
 db.vibrationdatas.deleteMany({})
+```
+
+### Create index for better performance on Z-axis queries
+```javascript
+db.testsessions.createIndex({"zAxisData.timestamp": 1})
+db.vibrationdatas.createIndex({sessionId: 1, timestamp: 1})
 ```

@@ -1,15 +1,18 @@
-require('dotenv').config();
+import 'dotenv/config';
+import express from 'express';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const path = require('path');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 // Middleware
 app.use(cors({
@@ -33,37 +36,61 @@ mongoose.connect(process.env.MONGODB_URI, {
   minPoolSize: parseInt(process.env.DB_MIN_POOL_SIZE) || 5,
 });
 
-// MongoDB schemas
+// Updated MongoDB schemas - Z-axis only vibration data
 const TestSessionSchema = new mongoose.Schema({
   name: { type: String, required: true },
   startTime: { type: Date, default: Date.now },
   endTime: { type: Date },
   isActive: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const VibrationDataSchema = new mongoose.Schema({
-  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TestSession', required: true },
-  timestamp: { type: String, required: true },
-  deltaX: { type: Number, required: true },
-  deltaY: { type: Number, required: true },
-  deltaZ: { type: Number, required: true },
-  receivedAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  zAxisData: [{
+    timestamp: String,
+    deltaZ: Number,
+    rawZ: Number,
+    receivedAt: { type: Date, default: Date.now }
+  }],
+  // Resonance analysis fields
+  resonanceFrequencies: [Number], // Hz
+  dampingRatios: [Number],
+  naturalFrequency: Number,       // Hz
+  peakAmplitude: Number,
+  resonanceAnalysisComplete: { type: Boolean, default: false }
 });
 
 const TestSession = mongoose.model('TestSession', TestSessionSchema);
+
+// Simplified VibrationData schema - Z-axis only
+const VibrationDataSchema = new mongoose.Schema({
+  sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TestSession', required: true },
+  deviceId: { type: String, default: 'unknown' },
+  timestamp: { type: Date, default: Date.now },
+  deltaZ: { type: Number, required: true },
+  rawZ: { type: Number, required: true },
+  magnitude: { type: Number, default: 0 }, // Same as deltaZ for single axis
+  receivedAt: { type: Date, default: Date.now }
+});
+
 const VibrationData = mongoose.model('VibrationData', VibrationDataSchema);
 
 let currentSession = null;
 let webClients = new Set();
+let espClients = new Map();
 
 // WebSocket handling
 wss.on('connection', (ws, req) => {
-  const clientType = req.url.includes('client') ? 'web' : 'esp8266';
+  const clientType = req.url.includes('web') ? 'web' : 'esp8266';
   
   if (clientType === 'web') {
     webClients.add(ws);
     console.log('Web client connected');
+    
+    // Send current session status
+    ws.send(JSON.stringify({
+      type: 'session_status',
+      isActive: currentSession !== null,
+      sessionId: currentSession?._id,
+      connectedDevices: Array.from(espClients.keys())
+    }));
     
     ws.on('close', () => {
       webClients.delete(ws);
@@ -75,7 +102,10 @@ wss.on('connection', (ws, req) => {
         const data = JSON.parse(message);
         
         if (data.type === 'start_test') {
-          currentSession = new TestSession({ name: data.sessionName });
+          currentSession = new TestSession({ 
+            name: data.sessionName,
+            zAxisData: []  // Initialize empty array
+          });
           await currentSession.save();
           
           // Broadcast to all web clients
@@ -85,7 +115,7 @@ wss.on('connection', (ws, req) => {
             sessionName: currentSession.name
           });
           webClients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
+            if (client.readyState === 1) { // WebSocket.OPEN is now just 1
               client.send(response);
             }
           });
@@ -95,6 +125,10 @@ wss.on('connection', (ws, req) => {
           if (currentSession) {
             currentSession.endTime = new Date();
             currentSession.isActive = false;
+            
+            // Calculate resonance before saving
+            await calculateResonance(currentSession._id);
+            
             await currentSession.save();
             
             // Broadcast to all web clients
@@ -103,7 +137,7 @@ wss.on('connection', (ws, req) => {
               sessionId: currentSession._id
             });
             webClients.forEach(client => {
-              if (client.readyState === WebSocket.OPEN) {
+              if (client.readyState === 1) {
                 client.send(response);
               }
             });
@@ -121,11 +155,25 @@ wss.on('connection', (ws, req) => {
         }
         
         if (data.type === 'get_session_data') {
-          const sessionData = await VibrationData.find({ sessionId: data.sessionId }).sort({ receivedAt: 1 });
+          const session = await TestSession.findById(data.sessionId);
+          
+          // If resonance analysis isn't complete and the test is done, calculate it
+          if (!session.resonanceAnalysisComplete && !session.isActive) {
+            await calculateResonance(session._id);
+          }
+          
+          const updatedSession = await TestSession.findById(data.sessionId);
+          
           ws.send(JSON.stringify({
             type: 'session_data',
             sessionId: data.sessionId,
-            data: sessionData
+            data: updatedSession.zAxisData,
+            resonanceData: {
+              resonanceFrequencies: updatedSession.resonanceFrequencies,
+              dampingRatios: updatedSession.dampingRatios,
+              naturalFrequency: updatedSession.naturalFrequency,
+              peakAmplitude: updatedSession.peakAmplitude
+            }
           }));
         }
         
@@ -139,34 +187,84 @@ wss.on('connection', (ws, req) => {
     
     ws.on('message', async (message) => {
       try {
-        if (currentSession && currentSession.isActive) {
-          const vibrationData = JSON.parse(message);
+        const data = JSON.parse(message);
+        
+        if (data.type === 'device_connected') {
+          espClients.set(data.deviceId, ws);
+          console.log(`ESP8266 device connected: ${data.deviceId}`);
           
-          const newData = new VibrationData({
+          // Notify web clients of device connection
+          broadcastToWebClients({
+            type: 'device_status',
+            deviceId: data.deviceId,
+            status: 'connected'
+          });
+          return;
+        }
+        
+        if (data.type === 'vibration_data' && currentSession) {
+          // Z-axis only data storage
+          const vibrationData = new VibrationData({
             sessionId: currentSession._id,
-            timestamp: vibrationData.timestamp,
-            deltaX: vibrationData.deltaX,
-            deltaY: vibrationData.deltaY,
-            deltaZ: vibrationData.deltaZ
+            deviceId: data.deviceId || 'unknown',
+            timestamp: new Date(data.timestamp || Date.now()),
+            deltaZ: data.deltaZ || 0,
+            rawZ: data.rawZ || 0,
+            magnitude: data.magnitude || data.deltaZ || 0,
+            receivedAt: new Date()
+          });
+
+          await vibrationData.save();
+
+          // Update session with latest Z-axis data for real-time analysis
+          if (!currentSession.zAxisData) currentSession.zAxisData = [];
+          if (!currentSession.timestamps) currentSession.timestamps = [];
+          
+          // Store both raw and delta values for comprehensive analysis
+          currentSession.zAxisData.push({
+            timestamp: data.timestamp,
+            deltaZ: data.deltaZ,
+            rawZ: data.rawZ,
+            receivedAt: new Date()
           });
           
-          await newData.save();
-          
-          // Broadcast to all web clients
-          const response = JSON.stringify({
-            type: 'vibration_data',
-            sessionId: currentSession._id,
-            data: vibrationData,
-            receivedAt: newData.receivedAt
-          });
-          
-          webClients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(response);
-            }
-          });
-          
-          console.log('Vibration data saved:', vibrationData);
+          // Keep only last 100 samples for real-time analysis
+          if (currentSession.zAxisData.length > 100) {
+            currentSession.zAxisData = currentSession.zAxisData.slice(-100);
+          }
+
+          // Calculate real-time resonance every 10 data points
+          if (currentSession.zAxisData.length % 10 === 0 && currentSession.zAxisData.length >= 32) {
+            const resonanceData = await calculateResonance(currentSession._id);
+            
+            // Broadcast enhanced Z-axis data to web clients
+            broadcastToWebClients({
+              type: 'vibration_data',
+              sessionId: currentSession._id,
+              deviceId: data.deviceId,
+              timestamp: data.timestamp,
+              deltaZ: data.deltaZ,
+              rawZ: data.rawZ,
+              magnitude: data.magnitude,
+              receivedAt: new Date().toISOString(),
+              // Real-time calculations
+              frequency: resonanceData.frequency,
+              damping: resonanceData.damping,
+              amplitude: resonanceData.amplitude
+            });
+          } else {
+            // Broadcast basic Z-axis data without calculations
+            broadcastToWebClients({
+              type: 'vibration_data',
+              sessionId: currentSession._id,
+              deviceId: data.deviceId,
+              timestamp: data.timestamp,
+              deltaZ: data.deltaZ,
+              rawZ: data.rawZ,
+              magnitude: data.magnitude,
+              receivedAt: new Date().toISOString()
+            });
+          }
         }
       } catch (error) {
         console.error('Error processing ESP8266 data:', error);
@@ -174,12 +272,166 @@ wss.on('connection', (ws, req) => {
     });
     
     ws.on('close', () => {
-      console.log('ESP8266 disconnected');
+      // Remove from ESP clients
+      for (const [deviceId, client] of espClients.entries()) {
+        if (client === ws) {
+          espClients.delete(deviceId);
+          console.log(`ESP8266 disconnected: ${deviceId}`);
+          
+          // Notify web clients
+          broadcastToWebClients({
+            type: 'device_status',
+            deviceId: deviceId,
+            status: 'disconnected'
+          });
+          break;
+        }
+      }
     });
   }
 });
 
-// REST API endpoints
+/**
+ * Calculate resonance for a test session using Z-axis data only
+ * This analyzes the Z-axis vibration data to find natural frequencies and damping
+ * @param {string} sessionId - The MongoDB ID of the session
+ */
+async function calculateResonance(sessionId) {
+  try {
+    const session = await TestSession.findById(sessionId);
+    if (!session || session.zAxisData.length < 10) {
+      console.log('Not enough Z-axis data for resonance analysis');
+      return { frequency: 0, damping: 0, amplitude: 0 };
+    }
+    
+    // Extract Z-axis raw values for frequency analysis
+    const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
+    const timestamps = session.zAxisData.map(d => d.timestamp || Date.now());
+    
+    if (zAxisRawData.length < 32) {
+      console.log('Insufficient Z-axis data for FFT analysis');
+      return { frequency: 0, damping: 0, amplitude: 0 };
+    }
+
+    // Calculate sampling frequency from timestamps
+    const avgSampleInterval = timestamps.length > 1 
+      ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
+      : 50; // Default 50ms interval
+    const samplingFreq = 1000 / avgSampleInterval; // Convert to Hz
+
+    // Perform FFT on Z-axis data
+    const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
+    
+    // Calculate damping ratio using logarithmic decrement
+    const dampingRatio = calculateDampingRatio(zAxisRawData);
+    
+    // Update session with calculated values
+    session.naturalFrequency = fftResult.dominantFreq;
+    session.resonanceFrequencies = [fftResult.dominantFreq];
+    session.dampingRatios = [dampingRatio];
+    session.peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
+    session.resonanceAnalysisComplete = true;
+    
+    await session.save();
+    
+    console.log(`Z-axis resonance calculated - Freq: ${fftResult.dominantFreq.toFixed(2)}Hz, Damping: ${dampingRatio.toFixed(4)}`);
+    
+    return {
+      frequency: fftResult.dominantFreq,
+      damping: dampingRatio,
+      amplitude: session.peakAmplitude
+    };
+    
+  } catch (error) {
+    console.error('Error calculating Z-axis resonance:', error);
+    return { frequency: 0, damping: 0, amplitude: 0 };
+  }
+}
+
+/**
+ * Simple FFT implementation for frequency analysis
+ */
+function performSimpleFFT(data, samplingFreq) {
+  const N = data.length;
+  const frequencies = [];
+  const magnitudes = [];
+  
+  // Calculate frequency bins
+  for (let k = 0; k < N/2; k++) {
+    frequencies[k] = k * samplingFreq / N;
+  }
+  
+  // Simple DFT calculation for dominant frequency detection
+  let maxMagnitude = 0;
+  let dominantFreq = 0;
+  
+  for (let k = 1; k < N/2; k++) { // Skip DC component
+    let real = 0;
+    let imag = 0;
+    
+    for (let n = 0; n < N; n++) {
+      const angle = -2 * Math.PI * k * n / N;
+      real += data[n] * Math.cos(angle);
+      imag += data[n] * Math.sin(angle);
+    }
+    
+    const magnitude = Math.sqrt(real * real + imag * imag);
+    magnitudes[k] = magnitude;
+    
+    if (magnitude > maxMagnitude && frequencies[k] > 0.5) { // Ignore very low frequencies
+      maxMagnitude = magnitude;
+      dominantFreq = frequencies[k];
+    }
+  }
+  
+  return { dominantFreq, magnitudes, frequencies };
+}
+
+/**
+ * Calculate damping ratio using logarithmic decrement method
+ */
+function calculateDampingRatio(data) {
+  // Find peaks in the signal
+  const peaks = [];
+  
+  for (let i = 1; i < data.length - 1; i++) {
+    if (data[i] > data[i-1] && data[i] > data[i+1] && Math.abs(data[i]) > 0.1) {
+      peaks.push({ index: i, value: Math.abs(data[i]) });
+    }
+  }
+  
+  if (peaks.length < 2) return 0;
+  
+  // Calculate logarithmic decrement
+  let totalDecrement = 0;
+  let validDecrements = 0;
+  
+  for (let i = 0; i < peaks.length - 1; i++) {
+    if (peaks[i].value > 0 && peaks[i+1].value > 0) {
+      totalDecrement += Math.log(peaks[i].value / peaks[i+1].value);
+      validDecrements++;
+    }
+  }
+  
+  if (validDecrements === 0) return 0;
+  
+  const avgDecrement = totalDecrement / validDecrements;
+  const dampingRatio = avgDecrement / Math.sqrt(4 * Math.PI * Math.PI + avgDecrement * avgDecrement);
+  
+  return Math.max(0, Math.min(1, dampingRatio)); // Clamp between 0 and 1
+}
+
+// Helper function to broadcast to web clients
+function broadcastToWebClients(data) {
+  const message = JSON.stringify(data);
+  webClients.forEach(client => {
+    if (client.readyState === 1) { // WebSocket.OPEN is 1
+      client.send(message);
+    }
+  });
+}
+
+// Update API endpoints for Z-axis data
 app.get('/api/sessions', async (req, res) => {
   try {
     const sessions = await TestSession.find().sort({ createdAt: -1 });
@@ -191,8 +443,62 @@ app.get('/api/sessions', async (req, res) => {
 
 app.get('/api/sessions/:id/data', async (req, res) => {
   try {
-    const sessionData = await VibrationData.find({ sessionId: req.params.id }).sort({ receivedAt: 1 });
-    res.json(sessionData);
+    const session = await TestSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    res.json({
+      zAxisData: session.zAxisData,
+      resonanceData: {
+        resonanceFrequencies: session.resonanceFrequencies,
+        dampingRatios: session.dampingRatios,
+        naturalFrequency: session.naturalFrequency,
+        peakAmplitude: session.peakAmplitude,
+        analysisComplete: session.resonanceAnalysisComplete
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/export/:sessionId', async (req, res) => {
+  try {
+    const session = await TestSession.findById(req.params.sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const format = req.query.format || 'json';
+    
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="vibration-data-${session._id}.csv"`);
+      
+      let csv = 'Timestamp,DeltaZ,RawZ,ReceivedAt\n';
+      session.zAxisData.forEach(data => {
+        csv += `${data.timestamp},${data.deltaZ},${data.rawZ},${data.receivedAt}\n`;
+      });
+      res.send(csv);
+    } else {
+      res.json({
+        sessionInfo: {
+          id: session._id,
+          name: session.name,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          isActive: session.isActive
+        },
+        zAxisData: session.zAxisData,
+        resonanceData: {
+          naturalFrequency: session.naturalFrequency,
+          resonanceFrequencies: session.resonanceFrequencies,
+          dampingRatios: session.dampingRatios,
+          peakAmplitude: session.peakAmplitude
+        }
+      });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
