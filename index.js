@@ -145,6 +145,48 @@ wss.on('connection', (ws, req) => {
           return;
         }
         
+        // Add handler for session deletion
+        if (data.type === 'delete_session') {
+          try {
+            const deletedSession = await TestSession.findByIdAndDelete(data.sessionId);
+            
+            if (deletedSession) {
+              // Also delete related vibration data
+              await VibrationData.deleteMany({ sessionId: data.sessionId });
+              
+              ws.send(JSON.stringify({
+                type: 'session_deleted',
+                sessionId: data.sessionId,
+                success: true
+              }));
+              
+              // Broadcast to all web clients to refresh their session lists
+              broadcastToWebClients({
+                type: 'session_deleted',
+                sessionId: data.sessionId
+              });
+              
+              console.log(`Session ${data.sessionId} deleted successfully`);
+            } else {
+              ws.send(JSON.stringify({
+                type: 'session_deleted',
+                sessionId: data.sessionId,
+                success: false,
+                error: 'Session not found'
+              }));
+            }
+          } catch (error) {
+            console.error('Error deleting session:', error);
+            ws.send(JSON.stringify({
+              type: 'session_deleted',
+              sessionId: data.sessionId,
+              success: false,
+              error: error.message
+            }));
+          }
+          return;
+        }
+        
         if (data.type === 'start_test') {
           currentSession = new TestSession({ 
             name: data.sessionName,
@@ -277,11 +319,11 @@ wss.on('connection', (ws, req) => {
             currentSession.zAxisData = currentSession.zAxisData.slice(-100);
           }
 
-          // Calculate real-time resonance every 10 data points
-          if (currentSession.zAxisData.length % 10 === 0 && currentSession.zAxisData.length >= 32) {
-            const resonanceData = await calculateResonance(currentSession._id);
+          // Perform real-time analysis on every data point to ensure we don't miss key information
+          if (currentSession.zAxisData.length >= 32) {
+            const resonanceData = await calculateResonance(currentSession._id, true);
             
-            // Broadcast enhanced Z-axis data to web clients
+            // Broadcast enhanced Z-axis data to web clients with real-time analysis
             broadcastToWebClients({
               type: 'vibration_data',
               sessionId: currentSession._id,
@@ -294,8 +336,30 @@ wss.on('connection', (ws, req) => {
               // Real-time calculations
               frequency: resonanceData.frequency,
               damping: resonanceData.damping,
-              amplitude: resonanceData.amplitude
+              amplitude: resonanceData.amplitude,
+              qFactor: resonanceData.qFactor,
+              naturalPeriod: resonanceData.naturalPeriod,
+              bandwidth: resonanceData.bandwidth
             });
+            
+            // Also send real-time resonance data update every 10 points
+            if (currentSession.zAxisData.length % 10 === 0) {
+              broadcastToWebClients({
+                type: 'resonance_data',
+                sessionId: currentSession._id,
+                frequency: resonanceData.frequency,
+                damping: resonanceData.damping,
+                amplitude: resonanceData.amplitude,
+                qFactor: resonanceData.qFactor,
+                naturalPeriod: resonanceData.naturalPeriod,
+                stiffness: resonanceData.stiffness,
+                dampingCoefficient: resonanceData.dampingCoefficient,
+                rms: resonanceData.rms,
+                crestFactor: resonanceData.crestFactor,
+                bandwidth: resonanceData.bandwidth,
+                resonanceMagnification: resonanceData.resonanceMagnification
+              });
+            }
           } else {
             // Broadcast basic Z-axis data without calculations
             broadcastToWebClients({
@@ -339,8 +403,9 @@ wss.on('connection', (ws, req) => {
  * Calculate resonance for a test session using Z-axis data only
  * This analyzes the Z-axis vibration data to find natural frequencies and damping
  * @param {string} sessionId - The MongoDB ID of the session
+ * @param {boolean} isRealtime - Whether this is a real-time calculation (don't save to DB)
  */
-async function calculateResonance(sessionId) {
+async function calculateResonance(sessionId, isRealtime = false) {
   try {
     const session = await TestSession.findById(sessionId);
     if (!session || session.zAxisData.length < 10) {
@@ -391,28 +456,31 @@ async function calculateResonance(sessionId) {
     const bandwidth = dampingRatio * naturalFrequency;
     const resonanceMagnification = qFactor;
     
-    // Update session with calculated values
-    session.naturalFrequency = naturalFrequency;
-    session.resonanceFrequencies = [naturalFrequency];
-    session.dampingRatios = [dampingRatio];
-    session.peakAmplitude = peakAmplitude;
-    session.resonanceAnalysisComplete = true;
-    
-    // Add new mechanical properties
-    session.mechanicalProperties = {
-      naturalPeriod,
-      stiffness,
-      dampingCoefficient,
-      qFactor,
-      rms,
-      crestFactor,
-      bandwidth,
-      resonanceMagnification
-    };
-    
-    await session.save();
-    
-    console.log(`Z-axis resonance calculated - Freq: ${naturalFrequency.toFixed(2)}Hz, Damping: ${dampingRatio.toFixed(4)}`);
+    // Only update the database if this is not a real-time calculation
+    if (!isRealtime) {
+      // Update session with calculated values
+      session.naturalFrequency = naturalFrequency;
+      session.resonanceFrequencies = [naturalFrequency];
+      session.dampingRatios = [dampingRatio];
+      session.peakAmplitude = peakAmplitude;
+      session.resonanceAnalysisComplete = true;
+      
+      // Add new mechanical properties
+      session.mechanicalProperties = {
+        naturalPeriod,
+        stiffness,
+        dampingCoefficient,
+        qFactor,
+        rms,
+        crestFactor,
+        bandwidth,
+        resonanceMagnification
+      };
+      
+      await session.save();
+      
+      console.log(`Z-axis resonance calculated - Freq: ${naturalFrequency.toFixed(2)}Hz, Damping: ${dampingRatio.toFixed(4)}`);
+    }
     
     return {
       frequency: naturalFrequency,
@@ -425,7 +493,9 @@ async function calculateResonance(sessionId) {
       rms: rms,
       crestFactor: crestFactor,
       bandwidth: bandwidth,
-      resonanceMagnification: resonanceMagnification
+      resonanceMagnification: resonanceMagnification,
+      frequencies: fftResult.frequencies,
+      magnitudes: fftResult.magnitudes
     };
     
   } catch (error) {
@@ -613,6 +683,41 @@ app.get('/api/sessions/recent/:limit', async (req, res) => {
       .limit(limit);
     
     res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add endpoint for session deletion via REST API as well
+app.delete('/api/sessions/:id', async (req, res) => {
+  try {
+    const deletedSession = await TestSession.findByIdAndDelete(req.params.id);
+    
+    if (!deletedSession) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Delete related vibration data
+    await VibrationData.deleteMany({ sessionId: req.params.id });
+    
+    res.json({ success: true, message: 'Session deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add endpoint for resonance data
+app.get('/api/sessions/:id/resonance', async (req, res) => {
+  try {
+    const session = await TestSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Calculate fresh resonance data
+    const resonanceData = await calculateResonance(session._id);
+    
+    res.json(resonanceData);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

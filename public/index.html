@@ -65,25 +65,53 @@
             color: #e2e8f0;
         }
         
-        .formula-section {
-            margin-top: 2rem;
-            padding: 1rem;
-            background: rgba(30, 41, 59, 0.7);
-            border-radius: 8px;
-            border: 1px solid rgba(71, 85, 105, 0.5);
+        /* Delete confirm modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
         }
         
-        .formula {
-            font-family: 'Times New Roman', Times, serif;
-            padding: 0.5rem;
-            background: rgba(15, 23, 42, 0.7);
-            border-radius: 4px;
-            margin: 0.5rem 0;
-            overflow-x: auto;
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1e293b;
+            padding: 2rem;
+            border-radius: 8px;
+            max-width: 90%;
+            width: 500px;
+        }
+        
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
         }
     </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-gray-100">
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeDeleteModal()">&times;</span>
+            <h2 class="text-xl font-bold mb-4">Confirm Session Deletion</h2>
+            <p class="mb-6">Are you sure you want to delete this session? This action cannot be undone.</p>
+            <input type="hidden" id="deleteSessionId" value="">
+            <div class="flex justify-end space-x-4">
+                <button class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded" onclick="closeDeleteModal()">Cancel</button>
+                <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="confirmDeleteSession()">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
         <div class="text-center mb-8">
@@ -263,47 +291,24 @@
             </div>
         </div>
         
-        <!-- Formulas Documentation -->
-        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
-            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
-                <i class="fas fa-calculator text-purple-400 mr-2"></i>
-                Vibration Analysis Formulas
+        <!-- Link to documentation instead of embedding formulas -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6 text-center">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center justify-center">
+                <i class="fas fa-book text-blue-400 mr-2"></i>
+                Documentation
             </h3>
-            <div class="formula-section">
-                <h4 class="text-md font-medium text-gray-300 mb-2">Natural Frequency (fn)</h4>
-                <div class="formula">f_n = \frac{1}{2\pi} \sqrt{\frac{k}{m}}</div>
-                <p class="text-sm text-gray-400">Where k is stiffness (N/m) and m is mass (kg)</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Damping Ratio (ζ)</h4>
-                <div class="formula">\zeta = \frac{c}{2\sqrt{km}}</div>
-                <p class="text-sm text-gray-400">Where c is the damping coefficient (Ns/m)</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Q Factor</h4>
-                <div class="formula">Q = \frac{1}{2\zeta}</div>
-                <p class="text-sm text-gray-400">Quality factor - higher values mean less damping</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Logarithmic Decrement (δ)</h4>
-                <div class="formula">\delta = \ln\left(\frac{x_1}{x_{n+1}}\right) \cdot \frac{1}{n}</div>
-                <p class="text-sm text-gray-400">Where x1 and xn+1 are amplitudes n cycles apart</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">System Response</h4>
-                <div class="formula">X = \frac{F/k}{\sqrt{(1-r^2)^2 + (2\zeta r)^2}}</div>
-                <p class="text-sm text-gray-400">Where r is frequency ratio (f/fn) and F is applied force</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">RMS Value</h4>
-                <div class="formula">RMS = \sqrt{\frac{1}{N}\sum_{i=1}^{N}x_i^2}</div>
-                <p class="text-sm text-gray-400">Root Mean Square of vibration signal</p>
-                
-                <h4 class="text-md font-medium text-gray-300 mb-2 mt-4">Crest Factor</h4>
-                <div class="formula">CF = \frac{|x|_{peak}}{x_{RMS}}</div>
-                <p class="text-sm text-gray-400">Ratio of peak value to RMS - indicates impulsive nature</p>
-            </div>
+            <p class="mb-4 text-gray-300">For detailed information about vibration analysis formulas and methodologies used in this application, please refer to the project README.</p>
+            <a href="https://github.com/yourusername/vibbration" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+                <i class="fab fa-github mr-2"></i>
+                View Project Documentation
+            </a>
         </div>
     </div>
 
     <script>
         // WebSocket connection to secure server
-        const socket = new WebSocket('wss://vibrations.onrender.com/web');
+        const socket = new WebSocket(window.location.protocol.startsWith('https') ? 'wss://' : 'ws://' + 
+                                   window.location.host + '/web');
         let currentSession = null;
         let isRecording = false;
         let dataPointCount = 0;
@@ -527,6 +532,9 @@
                 case 'resonance_data':
                     updateResonanceData(data);
                     break;
+                case 'session_deleted':
+                    onSessionDeleted(data);
+                    break;
             }
         }
 
@@ -704,6 +712,35 @@
             }
         }
         
+        function deleteSession(sessionId) {
+            document.getElementById('deleteSessionId').value = sessionId;
+            document.getElementById('deleteModal').style.display = 'block';
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+        
+        function confirmDeleteSession() {
+            const sessionId = document.getElementById('deleteSessionId').value;
+            if (sessionId) {
+                socket.send(JSON.stringify({
+                    type: 'delete_session',
+                    sessionId: sessionId
+                }));
+            }
+            closeDeleteModal();
+        }
+        
+        function onSessionDeleted(data) {
+            if (data.success) {
+                // Request updated session list
+                socket.send(JSON.stringify({
+                    type: 'get_sessions'
+                }));
+            }
+        }
+        
         // Initialize session management
         document.getElementById('startSessionBtn').addEventListener('click', () => {
             const sessionName = document.getElementById('sessionName').value.trim();
@@ -735,10 +772,12 @@
         });
         
         function updateResonanceData(data) {
-            // Update frequency chart
-            frequencyChart.data.labels = data.frequencies;
-            frequencyChart.data.datasets[0].data = data.amplitudes;
-            frequencyChart.update('none');
+            // Update frequency chart if frequencies are available
+            if (data.frequencies && data.magnitudes) {
+                frequencyChart.data.labels = data.frequencies;
+                frequencyChart.data.datasets[0].data = data.magnitudes;
+                frequencyChart.update('none');
+            }
             
             // Update engineering data
             const engineeringDataEl = document.getElementById('engineeringData');
@@ -791,17 +830,20 @@
                             ${session.isActive ? 'Active' : 'Completed'}
                         </span>
                     </td>
-                    <td class="px-4 py-3">
-                        <button class="text-blue-400 hover:text-blue-300 mr-3" onclick="viewSession('${session._id}')">
+                    <td class="px-4 py-3 flex space-x-2">
+                        <button class="text-blue-400 hover:text-blue-300 p-1" onclick="viewSession('${session._id}')">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="text-green-400 hover:text-green-300" onclick="exportSession('${session._id}')">
+                        <button class="text-green-400 hover:text-green-300 p-1" onclick="exportSession('${session._id}')">
                             <i class="fas fa-download"></i>
                         </button>
                         ${session.isActive ? 
-                          `<button class="text-red-400 hover:text-red-300 ml-3" onclick="stopSession('${session._id}')">
+                          `<button class="text-red-400 hover:text-red-300 p-1" onclick="stopSession('${session._id}')">
                               <i class="fas fa-stop"></i>
-                           </button>` : ''}
+                           </button>` : 
+                          `<button class="text-red-400 hover:text-red-300 p-1" onclick="deleteSession('${session._id}')">
+                              <i class="fas fa-trash"></i>
+                           </button>`}
                     </td>
                 `;
                 
@@ -863,9 +905,5 @@
             }));
         }
     </script>
-    
-    <!-- MathJax for rendering math formulas properly -->
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </body>
 </html>

@@ -113,16 +113,21 @@ Returns all test sessions with metadata.
 ### GET /api/export/:sessionId?format=csv
 Exports session data in CSV format.
 
+### DELETE /api/sessions/:id
+Deletes the specified session and its vibration data.
+
 ### WebSocket Events
 
 #### Client → Server
 - `start_test`: Begin new test session
 - `stop_test`: End current session
+- `delete_session`: Delete a session
 
 #### Server → Client
 - `vibration_data`: Real-time Z-axis data
 - `session_status`: Session state updates
 - `device_status`: Device connection updates
+- `session_deleted`: Confirms session deletion
 
 ## Deployment
 
@@ -157,6 +162,7 @@ Exports session data in CSV format.
 2. **Start Test**: Enter session name and click "Start Test"
 3. **Monitor**: View real-time Z-axis vibration data
 4. **Export**: Download session data as CSV
+5. **Delete**: Remove unwanted test sessions
 
 ### Z-Axis Metrics
 
@@ -172,6 +178,92 @@ The system automatically calculates:
 - Damping ratio via logarithmic decrement
 - Q factor for resonance sharpness
 - Frequency response curves
+
+## Vibration Analysis Formulas
+
+### Natural Frequency (fn)
+```
+fn = (1/2π) * √(k/m)
+```
+Where k is stiffness (N/m) and m is mass (kg)
+
+### Angular Natural Frequency (ωn)
+```
+ωn = 2πfn = √(k/m)
+```
+
+### Natural Period (Tn)
+```
+Tn = 1/fn = 2π * √(m/k)
+```
+
+### Damping Ratio (ζ)
+```
+ζ = c / (2 * √(km))
+```
+Where c is damping coefficient (Ns/m)
+
+### Critical Damping
+```
+cc = 2 * √(km)
+```
+
+### System Classification
+- **Underdamped**: ζ < 1 (System oscillates with decreasing amplitude)
+- **Critically Damped**: ζ = 1 (System returns to equilibrium without oscillation in minimal time)
+- **Overdamped**: ζ > 1 (System returns to equilibrium without oscillation but slower)
+
+### Logarithmic Decrement (δ)
+```
+δ = (1/n) * ln(x₁/x₍ₙ₊₁₎)
+```
+Where x₁ and x₍ₙ₊₁₎ are amplitudes n cycles apart
+
+### Damping Ratio from Log Decrement
+```
+ζ = δ / √(4π² + δ²)
+```
+
+### Q Factor
+```
+Q = 1/(2ζ)
+```
+
+### Frequency Response
+```
+X = F/k / √((1-r²)² + (2ζr)²)
+```
+Where r is frequency ratio (f/fn) and F is applied force
+
+### Resonance Frequency (damped)
+```
+ωd = ωn * √(1-ζ²)
+```
+
+### Magnification Factor at Resonance
+```
+MF = 1/(2ζ√(1-ζ²))
+```
+
+### Root Mean Square (RMS)
+```
+RMS = √(1/N * Σ(x²))
+```
+
+### Crest Factor
+```
+CF = |x|peak / xRMS
+```
+
+### Half-Power Bandwidth
+```
+BW = 2 * ζ * ωn
+```
+
+### Quality Factor from Bandwidth
+```
+Q = ωn / BW
+```
 
 ## Troubleshooting
 
