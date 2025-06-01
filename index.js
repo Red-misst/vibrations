@@ -236,30 +236,37 @@ wss.on('connection', (ws, req) => {
             });
             broadcastToWebClients(JSON.parse(response));
             
+            // IMPORTANT FIX: Save session ID before setting currentSession to null
+            const completedSessionId = currentSession._id;
+            currentSession = null;
+            
             // After a short delay, send the resonance data to clients
             setTimeout(async () => {
-              const sessionWithResonance = await TestSession.findById(currentSession._id);
-              if (sessionWithResonance && sessionWithResonance.resonanceAnalysisComplete) {
-                broadcastToWebClients({
-                  type: 'resonance_data',
-                  sessionId: sessionWithResonance._id,
-                  frequency: sessionWithResonance.naturalFrequency,
-                  damping: sessionWithResonance.dampingRatios && sessionWithResonance.dampingRatios.length > 0 ? 
-                            sessionWithResonance.dampingRatios[0] : 0,
-                  amplitude: sessionWithResonance.peakAmplitude,
-                  qFactor: sessionWithResonance.mechanicalProperties?.qFactor,
-                  naturalPeriod: sessionWithResonance.mechanicalProperties?.naturalPeriod,
-                  stiffness: sessionWithResonance.mechanicalProperties?.stiffness,
-                  dampingCoefficient: sessionWithResonance.mechanicalProperties?.dampingCoefficient,
-                  rms: sessionWithResonance.mechanicalProperties?.rms,
-                  crestFactor: sessionWithResonance.mechanicalProperties?.crestFactor,
-                  bandwidth: sessionWithResonance.mechanicalProperties?.bandwidth,
-                  resonanceMagnification: sessionWithResonance.mechanicalProperties?.resonanceMagnification
-                });
+              try {
+                const sessionWithResonance = await TestSession.findById(completedSessionId);
+                if (sessionWithResonance && sessionWithResonance.resonanceAnalysisComplete) {
+                  broadcastToWebClients({
+                    type: 'resonance_data',
+                    sessionId: sessionWithResonance._id,
+                    frequency: sessionWithResonance.naturalFrequency,
+                    damping: sessionWithResonance.dampingRatios && sessionWithResonance.dampingRatios.length > 0 ? 
+                              sessionWithResonance.dampingRatios[0] : 0,
+                    amplitude: sessionWithResonance.peakAmplitude,
+                    qFactor: sessionWithResonance.mechanicalProperties?.qFactor,
+                    naturalPeriod: sessionWithResonance.mechanicalProperties?.naturalPeriod,
+                    stiffness: sessionWithResonance.mechanicalProperties?.stiffness,
+                    dampingCoefficient: sessionWithResonance.mechanicalProperties?.dampingCoefficient,
+                    rms: sessionWithResonance.mechanicalProperties?.rms,
+                    crestFactor: sessionWithResonance.mechanicalProperties?.crestFactor,
+                    bandwidth: sessionWithResonance.mechanicalProperties?.bandwidth,
+                    resonanceMagnification: sessionWithResonance.mechanicalProperties?.resonanceMagnification
+                  });
+                }
+              } catch (error) {
+                console.error('Error sending resonance data after session completion:', error);
               }
             }, 1500);
             
-            currentSession = null;
           }
         }
         
