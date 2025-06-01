@@ -1,251 +1,241 @@
 # Z-Axis Vibration Monitor
 
-A real-time vibration monitoring system that analyzes vertical (Z-axis) vibrations using an ESP8266 microcontroller with MPU9250 accelerometer. The system provides frequency analysis, damping calculations, and real-time data visualization through a secure WebSocket connection.
+A real-time vibration monitoring system focused on vertical (Z-axis) motion analysis using ESP8266 and MPU9250 sensors.
 
 ## Features
 
-- **Z-Axis Focus**: Specifically designed for vertical vibration analysis
-- **Real-time Monitoring**: Live data streaming and visualization
-- **Frequency Analysis**: FFT-based dominant frequency detection
-- **Damping Calculation**: Logarithmic decrement method for damping ratio
-- **Secure WebSocket**: HTTPS/WSS connection to deployed server
-- **Data Export**: CSV and JSON export capabilities
-- **Modern UI**: Responsive web interface with real-time charts
+- **Z-Axis Focus**: Monitors vertical vibrations only for precise structural analysis
+- **Real-time Data**: WebSocket-based live data streaming
+- **Resonance Analysis**: Automatic calculation of natural frequency and damping ratios
+- **Secure Connection**: HTTPS/WSS support for cloud deployment
+- **Data Export**: CSV export functionality for further analysis
+- **Session Management**: Organized test sessions with timestamps
 
-## System Architecture
+## Architecture
 
-```
-ESP8266 (MPU9250) → WSS → Node.js Server → MongoDB → Web Dashboard
-```
+### Hardware
+- **ESP8266**: WiFi-enabled microcontroller
+- **MPU9250**: 9-axis motion sensor (using Z-axis only)
+- **Power Supply**: 3.3V for ESP8266
 
-### Components
-
-1. **ESP8266 Hardware**: Collects Z-axis acceleration data
-2. **Node.js Server**: Processes data and performs analysis
-3. **MongoDB**: Stores session data and vibration measurements
-4. **Web Dashboard**: Real-time visualization and control
-
-## Hardware Requirements
-
-- ESP8266 (NodeMCU, Wemos D1, etc.)
-- MPU9250 9-axis sensor (or compatible accelerometer)
-- Jumper wires for connections
-
-### Wiring
-
-```
-ESP8266  →  MPU9250
-GPIO4    →  SDA
-GPIO5    →  SCL
-3.3V     →  VCC
-GND      →  GND
-```
-
-## Software Requirements
-
-- Arduino IDE with ESP8266 board package
-- Node.js 16+
-- MongoDB (local or cloud)
-
-### Arduino Libraries
-
-```cpp
-#include <ESP8266WiFi.h>
-#include <WebSocketsClient.h>
-#include <ArduinoJson.h>
-#include <MPU9250_asukiaaa.h>
-```
+### Software Stack
+- **Backend**: Node.js with Express and WebSocket
+- **Database**: MongoDB for session and data storage
+- **Frontend**: Vanilla JavaScript with Chart.js
+- **Deployment**: Render.com cloud platform
 
 ## Installation
 
-### 1. Clone Repository
+### Prerequisites
+- Node.js 14+
+- MongoDB (local or cloud)
+- Arduino IDE for ESP8266 programming
 
-```bash
-git clone <repository-url>
-cd vibbration
+### Server Setup
+
+1. **Clone and install dependencies**:
+   ```bash
+   git clone <repository>
+   cd vibbration
+   npm install
+   ```
+
+2. **Environment Configuration**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your MongoDB URI and other settings
+   ```
+
+3. **Start the server**:
+   ```bash
+   npm start
+   # For development:
+   npm run dev
+   ```
+
+### ESP8266 Setup
+
+1. **Install Libraries**:
+   - MPU9250_asukiaaa
+   - ArduinoJson
+   - WebSocketsClient
+
+2. **Configure WiFi**:
+   ```cpp
+   const char* ssid = "YOUR_SSID";
+   const char* password = "YOUR_PASSWORD";
+   ```
+
+3. **Upload the sketch** to your ESP8266
+
+## Z-Axis Data Structure
+
+### Sensor Data
+```javascript
+{
+  type: "vibration_data",
+  deviceId: "ESP8266_XXXXXX",
+  timestamp: 12345678,
+  deltaZ: 0.123,        // Z-axis vibration delta
+  rawZ: 9.856,          // Raw Z-axis acceleration
+  magnitude: 0.123      // Vibration magnitude (same as deltaZ)
+}
 ```
 
-### 2. Install Dependencies
-
-```bash
-npm install
+### Session Data
+```javascript
+{
+  name: "Building Test 1",
+  startTime: "2024-01-01T10:00:00Z",
+  endTime: "2024-01-01T10:15:00Z",
+  isActive: false,
+  zAxisData: [
+    {
+      timestamp: "12345678",
+      deltaZ: 0.123,
+      rawZ: 9.856,
+      receivedAt: "2024-01-01T10:00:01Z"
+    }
+  ],
+  // Resonance Analysis Results
+  naturalFrequency: 2.5,      // Hz
+  dampingRatios: [0.05],      // Damping ratio
+  peakAmplitude: 0.456,       // Maximum amplitude
+  resonanceAnalysisComplete: true
+}
 ```
-
-### 3. Configure Environment
-
-```bash
-cp .env.example .env
-# Edit .env with your MongoDB connection string
-```
-
-### 4. Upload Arduino Code
-
-1. Open `arduino/esp8266.ino` in Arduino IDE
-2. Update WiFi credentials and sensor configuration
-3. Install required libraries
-4. Upload to ESP8266
-
-### 5. Start Server
-
-```bash
-# Development
-npm run dev
-
-# Production
-npm start
-```
-
-## Configuration
-
-### Environment Variables
-
-```bash
-MONGODB_URI=mongodb://localhost:27017/vibration_monitor
-PORT=3000
-NODE_ENV=development
-WS_HEARTBEAT_INTERVAL=30000
-```
-
-### Arduino Configuration
-
-```cpp
-// WiFi Configuration
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-
-// WebSocket Server
-const char* host = "vibrations.onrender.com";
-const int port = 443;
-
-// Vibration Detection
-const float vibrationThreshold = 0.2;  // Adjust sensitivity
-const unsigned long sampleInterval = 50; // 20Hz sampling
-```
-
-## Usage
-
-### Starting a Test Session
-
-1. Ensure ESP8266 is connected (green indicator)
-2. Click "Start Test" button
-3. Apply vibrations to the Z-axis sensor
-4. Monitor real-time metrics and charts
-5. Click "Stop Test" when complete
-
-### Real-time Metrics
-
-- **Frequency**: Dominant frequency in Hz
-- **Damping Ratio**: System damping (0-1)
-- **Amplitude**: Peak Z-axis acceleration
-- **Current Z-Delta**: Live vibration intensity
-
-### Data Analysis
-
-The system performs real-time analysis including:
-
-- **FFT Analysis**: Identifies dominant frequencies
-- **Damping Calculation**: Uses logarithmic decrement method
-- **Peak Detection**: Finds local maxima in vibration data
-- **Statistical Analysis**: Calculates amplitude and frequency statistics
-
-### Data Export
-
-Export options available:
-- **CSV Format**: For Excel/data analysis tools
-- **JSON Format**: For programmatic access
-- **Real-time API**: REST endpoints for live data
 
 ## API Endpoints
 
-```bash
-GET /api/sessions                    # List all sessions
-GET /api/sessions/:id/data          # Get session data
-GET /api/export/:sessionId?format=csv # Export data
-```
+### GET /api/sessions
+Returns all test sessions with metadata.
 
-## Mathematical Background
+### GET /api/export/:sessionId?format=csv
+Exports session data in CSV format.
 
-### Frequency Analysis
+### WebSocket Events
 
-The system uses a simplified DFT (Discrete Fourier Transform) to identify dominant frequencies:
+#### Client → Server
+- `start_test`: Begin new test session
+- `stop_test`: End current session
 
-```javascript
-magnitude = √(real² + imag²)
-frequency = k * samplingRate / N
-```
+#### Server → Client
+- `vibration_data`: Real-time Z-axis data
+- `session_status`: Session state updates
+- `device_status`: Device connection updates
 
-### Damping Calculation
+## Deployment
 
-Logarithmic decrement method for damping ratio:
+### Render.com Deployment
 
-```javascript
-δ = ln(x₁/x₂)  // Natural log of successive peaks
-ζ = δ/√(4π² + δ²)  // Damping ratio
-```
+1. **Create Render Web Service**:
+   - Connect your GitHub repository
+   - Set build command: `npm install`
+   - Set start command: `npm start`
+
+2. **Environment Variables**:
+   ```
+   MONGODB_URI=mongodb+srv://...
+   NODE_ENV=production
+   PORT=10000
+   ```
+
+3. **Domain**: Your app will be available at `https://yourapp.onrender.com`
+
+### MongoDB Atlas Setup
+
+1. Create MongoDB Atlas cluster
+2. Configure network access (0.0.0.0/0 for Render)
+3. Create database user
+4. Copy connection string to MONGODB_URI
+
+## Usage
+
+### Web Interface
+
+1. **Access**: Open `https://yourapp.onrender.com`
+2. **Start Test**: Enter session name and click "Start Test"
+3. **Monitor**: View real-time Z-axis vibration data
+4. **Export**: Download session data as CSV
+
+### Z-Axis Metrics
+
+- **Frequency**: Dominant vibration frequency (Hz)
+- **Damping Ratio**: System damping coefficient
+- **Amplitude**: Peak Z-axis acceleration (g)
+- **Current Z-Delta**: Live vertical vibration intensity
+
+### Resonance Analysis
+
+The system automatically calculates:
+- Natural frequency using FFT analysis
+- Damping ratio via logarithmic decrement
+- Q factor for resonance sharpness
+- Frequency response curves
 
 ## Troubleshooting
 
-### ESP8266 Connection Issues
+### Common Issues
 
-1. Check WiFi credentials
-2. Verify server URL and port
-3. Ensure SSL certificate handling
-4. Monitor serial output for debug info
+1. **ESP8266 Won't Connect**:
+   - Check WiFi credentials
+   - Verify server URL and port
+   - Monitor serial output for errors
 
-### Sensor Reading Problems
+2. **No Data Received**:
+   - Confirm WebSocket connection
+   - Check sensor wiring (SDA=GPIO4, SCL=GPIO5)
+   - Verify MPU9250 initialization
 
-1. Verify wiring connections
-2. Check sensor power supply (3.3V)
-3. Test I2C communication
-4. Calibrate sensor if needed
+3. **Deployment Issues**:
+   - Ensure all files are committed
+   - Check environment variables
+   - Verify MongoDB connection string
 
-### Server Issues
+### Debug Commands
 
-1. Check MongoDB connection
-2. Verify environment variables
-3. Monitor server logs
-4. Test WebSocket connectivity
+```bash
+# Check MongoDB connection
+mongo "your_connection_string"
 
-## Development
+# View logs in development
+npm run dev
 
-### Project Structure
-
-```
-vibbration/
-├── arduino/
-│   └── esp8266.ino          # ESP8266 firmware
-├── public/
-│   └── index.html           # Web dashboard
-├── mongodb/
-│   └── README.md            # Database documentation
-├── models/                  # MongoDB schemas
-├── index.js                 # Main server file
-├── package.json             # Dependencies
-└── .env                     # Environment config
+# Check WebSocket connections
+# Browser DevTools → Network → WS
 ```
 
-### Adding Features
+## Data Analysis
 
-1. **New Sensor Support**: Modify Arduino code and data models
-2. **Advanced Analysis**: Add signal processing functions
-3. **UI Enhancements**: Update frontend components
-4. **Export Formats**: Add new export endpoints
+### Exported CSV Format
+```csv
+Timestamp,DeltaZ,RawZ,ReceivedAt
+12345678,0.123,9.856,2024-01-01T10:00:01Z
+```
+
+### Resonance Analysis
+The system performs automatic frequency domain analysis:
+- **FFT**: Fast Fourier Transform for frequency content
+- **Peak Detection**: Identifies dominant frequencies
+- **Damping Calculation**: Logarithmic decrement method
+- **Q Factor**: Quality factor calculation
 
 ## Contributing
 
 1. Fork the repository
 2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
+3. Make changes focusing on Z-axis improvements
+4. Test with actual hardware
+5. Submit pull request
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License - see LICENSE file for details.
 
 ## Support
 
-For issues and questions:
-- Check troubleshooting section
-- Review MongoDB logs
-- Monitor WebSocket connections
-- Verify hardware connections
+For technical support:
+1. Check the troubleshooting section
+2. Review MongoDB and WebSocket logs
+3. Verify ESP8266 serial output
+4. Open GitHub issue with detailed information

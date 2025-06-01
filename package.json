@@ -1,21 +1,35 @@
 {
   "name": "vibbration",
   "version": "1.0.0",
-  "type": "module",
-  "description": "Vibration monitoring server",
+  "description": "Z-Axis Vibration Monitoring System with Real-time Analysis",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "vibration",
+    "monitoring",
+    "esp8266",
+    "websocket",
+    "z-axis",
+    "real-time"
+  ],
+  "author": "Isaac",
+  "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "ws": "^8.14.2",
     "mongoose": "^7.5.0",
-    "cors": "^2.8.5"
+    "ws": "^8.14.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
   }
 }
