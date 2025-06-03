@@ -18,10 +18,10 @@ class VibrationMonitor {
             totalVibration: 0,
             maxVibration: 0
         };
-        this.resonanceChart = null;
+        this.frequencyChart = null;
 
         this.initChart();
-        this.initResonanceChart();
+        this.initFrequencyChart();
         this.initEventListeners();
         this.connect();
     }
@@ -122,13 +122,13 @@ class VibrationMonitor {
         });
     }
     
-    initResonanceChart() {
-        // Create a new canvas for resonance chart in the HTML
-        const resonanceSection = document.createElement('div');
-        resonanceSection.className = 'bg-gray-800 rounded-lg p-6 mb-8';
-        resonanceSection.innerHTML = `
-            <h3 class="text-xl font-semibold mb-4">Resonance Analysis</h3>
-            <div class="mb-4" id="resonance-data">
+    initFrequencyChart() {
+        // Create a new canvas for frequency analysis chart
+        const frequencySection = document.createElement('div');
+        frequencySection.className = 'bg-gray-800 rounded-lg p-6 mb-8';
+        frequencySection.innerHTML = `
+            <h3 class="text-xl font-semibold mb-4">Natural Frequency Analysis</h3>
+            <div class="mb-4" id="frequency-data">
                 <div class="grid grid-cols-2 gap-4">
                     <div class="bg-gray-700 p-4 rounded">
                         <div class="text-sm text-gray-400">Natural Frequency</div>
@@ -139,27 +139,27 @@ class VibrationMonitor {
                         <div id="peak-amplitude" class="text-xl font-mono">0.000</div>
                     </div>
                     <div class="bg-gray-700 p-4 rounded">
-                        <div class="text-sm text-gray-400">Damping Ratio</div>
-                        <div id="damping-ratio" class="text-xl font-mono">0.000</div>
-                    </div>
-                    <div class="bg-gray-700 p-4 rounded">
                         <div class="text-sm text-gray-400">Q Factor</div>
                         <div id="q-factor" class="text-xl font-mono">0.000</div>
+                    </div>
+                    <div class="bg-gray-700 p-4 rounded">
+                        <div class="text-sm text-gray-400">Bandwidth</div>
+                        <div id="bandwidth" class="text-xl font-mono">0.000 Hz</div>
                     </div>
                 </div>
             </div>
             <div class="h-64">
-                <canvas id="resonance-chart"></canvas>
+                <canvas id="frequency-chart"></canvas>
             </div>
         `;
         
         // Insert after vibration chart
         const vibrationChartElement = document.getElementById('vibration-chart').parentNode.parentNode;
-        vibrationChartElement.parentNode.insertBefore(resonanceSection, vibrationChartElement.nextSibling);
+        vibrationChartElement.parentNode.insertBefore(frequencySection, vibrationChartElement.nextSibling);
         
-        // Initialize the resonance chart
-        const ctx = document.getElementById('resonance-chart').getContext('2d');
-        this.resonanceChart = new Chart(ctx, {
+        // Initialize the frequency chart
+        const ctx = document.getElementById('frequency-chart').getContext('2d');
+        this.frequencyChart = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: [], // Frequencies
@@ -184,7 +184,7 @@ class VibrationMonitor {
                     },
                     title: {
                         display: true,
-                        text: 'Frequency Response Curve',
+                        text: 'Natural Frequency Spectrum',
                         color: '#F3F4F6'
                     }
                 },
@@ -304,7 +304,7 @@ class VibrationMonitor {
         const vibData = data.data;
         const timestamp = new Date().toLocaleTimeString();
         
-        // Update live values - only show Z-axis now
+        // Update live values - show Z-axis data regardless of magnitude
         document.getElementById('delta-z').textContent = vibData.deltaZ.toFixed(3);
         document.getElementById('last-update').textContent = timestamp;
         
@@ -318,7 +318,7 @@ class VibrationMonitor {
             deltaYElement.parentElement.style.display = 'none';
         }
         
-        // Update statistics
+        // Update statistics for ANY vibration data
         this.statistics.totalReadings++;
         const totalVib = Math.abs(vibData.deltaZ);
         this.statistics.totalVibration += totalVib;
@@ -335,7 +335,7 @@ class VibrationMonitor {
             document.getElementById('session-duration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
         
-        // Update chart - only Z axis
+        // Update chart - analyze ALL Z axis data
         this.chartData.labels.push(timestamp);
         this.chartData.deltaZ.push(vibData.deltaZ);
         
@@ -470,9 +470,9 @@ class VibrationMonitor {
             
             document.getElementById('view-session-max').textContent = maxVibration.toFixed(3);
             
-            // Update resonance data if available
-            if (data.resonanceData) {
-                this.updateResonanceDisplay(data.resonanceData);
+            // Update frequency data if available
+            if (data.frequencyData) {
+                this.updateFrequencyDisplay(data.frequencyData);
             }
         } else {
             document.getElementById('view-session-end').textContent = 'N/A';
@@ -483,64 +483,68 @@ class VibrationMonitor {
         this.updateChart();
     }
     
-    updateResonanceDisplay(resonanceData) {
-        // Update the resonance metrics display
+    updateFrequencyDisplay(frequencyData) {
+        // Update the frequency metrics display for ANY magnitude of data
         document.getElementById('natural-frequency').textContent = 
-            resonanceData.naturalFrequency ? 
-            `${resonanceData.naturalFrequency.toFixed(2)} Hz` : 
-            'N/A';
+            frequencyData.naturalFrequency ? 
+            `${frequencyData.naturalFrequency.toFixed(2)} Hz` : 
+            '0.00 Hz';
             
         document.getElementById('peak-amplitude').textContent = 
-            resonanceData.peakAmplitude ? 
-            resonanceData.peakAmplitude.toFixed(3) : 
-            'N/A';
+            frequencyData.peakAmplitude ? 
+            frequencyData.peakAmplitude.toFixed(3) : 
+            '0.000';
             
-        document.getElementById('damping-ratio').textContent = 
-            resonanceData.dampingRatios && resonanceData.dampingRatios.length > 0 ? 
-            resonanceData.dampingRatios[0].toFixed(3) : 
-            'N/A';
+        // Calculate and display Q factor if available
+        const qFactor = frequencyData.qFactor || 0;
+        document.getElementById('q-factor').textContent = 
+            qFactor > 0 ? qFactor.toFixed(2) : '0.00';
             
-        // Calculate and display Q factor if damping ratio is available
-        const dampingRatio = resonanceData.dampingRatios && resonanceData.dampingRatios.length > 0 ?
-            resonanceData.dampingRatios[0] : null;
-            
-        if (dampingRatio && dampingRatio < 1) {
-            const qFactor = 1 / (2 * dampingRatio);
-            document.getElementById('q-factor').textContent = qFactor.toFixed(3);
-        } else {
-            document.getElementById('q-factor').textContent = 'N/A';
-        }
+        // Calculate and display bandwidth
+        const bandwidth = frequencyData.bandwidth || 0;
+        document.getElementById('bandwidth').textContent = 
+            bandwidth > 0 ? `${bandwidth.toFixed(3)} Hz` : '0.000 Hz';
         
-        // Generate frequency response curve data for the resonance chart
-        if (resonanceData.naturalFrequency) {
-            const fn = resonanceData.naturalFrequency;
-            const zeta = resonanceData.dampingRatios && resonanceData.dampingRatios.length > 0 ?
-                resonanceData.dampingRatios[0] : 0.1; // Default if not available
+        // Generate frequency spectrum data for ANY vibration magnitude
+        if (frequencyData.naturalFrequency || frequencyData.frequencies) {
+            if (frequencyData.frequencies && frequencyData.magnitudes && 
+                frequencyData.frequencies.length > 0 && frequencyData.magnitudes.length > 0) {
                 
-            // Generate frequency range (0.1 to 2 times the natural frequency)
+                console.log("Using server-provided frequency data");
+                
+                // Use the provided frequency and magnitude data
+                this.frequencyChart.data.labels = frequencyData.frequencies;
+                this.frequencyChart.data.datasets[0].data = frequencyData.magnitudes;
+                this.frequencyChart.update();
+                return;
+            }
+            
+            // Generate synthetic frequency response curve for any detected frequency
+            const fn = frequencyData.naturalFrequency || 1; // Default to 1 Hz if no frequency detected
+            const damping = 0.05; // Default low damping
+            
+            // Generate points along a frequency response curve
+            const freqMin = Math.max(0.1, fn * 0.1);
+            const freqMax = fn * 3;
+            const numPoints = 100;
+            const step = (freqMax - freqMin) / (numPoints - 1);
+            
             const frequencies = [];
             const amplitudes = [];
             
-            for (let ratio = 0.1; ratio <= 2.0; ratio += 0.05) {
-                const f = fn * ratio;
-                frequencies.push(f.toFixed(1));
+            for (let i = 0; i < numPoints; i++) {
+                const f = freqMin + (step * i);
+                frequencies.push(f.toFixed(2));
                 
-                // Calculate amplitude ratio from frequency ratio using standard vibrational formula
-                const r = f / fn;
-                let amplitude;
-                if (zeta < 1) {
-                    amplitude = 1 / Math.sqrt(Math.pow(1 - r*r, 2) + Math.pow(2*zeta*r, 2));
-                } else {
-                    // Overdamped system
-                    amplitude = 1 / Math.sqrt(Math.pow(1 - r*r, 2) + Math.pow(2*zeta*r, 2));
-                }
+                // Calculate amplitude using frequency response formula for a damped oscillator
+                const r = f / fn; // frequency ratio
+                const amplitude = 1 / Math.sqrt(Math.pow(1 - r*r, 2) + Math.pow(2*damping*r, 2));
                 amplitudes.push(amplitude);
             }
             
-            // Update the resonance chart
-            this.resonanceChart.data.labels = frequencies;
-            this.resonanceChart.data.datasets[0].data = amplitudes;
-            this.resonanceChart.update('none');
+            this.frequencyChart.data.labels = frequencies;
+            this.frequencyChart.data.datasets[0].data = amplitudes;
+            this.frequencyChart.update();
         }
     }
     
@@ -568,15 +572,13 @@ class VibrationMonitor {
                         csvContent += `${timestamp},${reading.deltaZ},${totalVib.toFixed(4)}\n`;
                     });
                     
-                    // Add resonance data if available
-                    if (data.resonanceData) {
-                        csvContent += "\nResonance Analysis\n";
-                        csvContent += `Natural Frequency (Hz),${data.resonanceData.naturalFrequency?.toFixed(4) || 'N/A'}\n`;
-                        csvContent += `Peak Amplitude,${data.resonanceData.peakAmplitude?.toFixed(4) || 'N/A'}\n`;
-                        if (data.resonanceData.dampingRatios && data.resonanceData.dampingRatios.length > 0) {
-                            csvContent += `Damping Ratio,${data.resonanceData.dampingRatios[0].toFixed(4)}\n`;
-                            csvContent += `Q Factor,${(1/(2*data.resonanceData.dampingRatios[0])).toFixed(4)}\n`;
-                        }
+                    // Add frequency data if available
+                    if (data.frequencyData) {
+                        csvContent += "\nFrequency Analysis\n";
+                        csvContent += `Natural Frequency (Hz),${data.frequencyData.naturalFrequency?.toFixed(4) || 'N/A'}\n`;
+                        csvContent += `Peak Amplitude,${data.frequencyData.peakAmplitude?.toFixed(4) || 'N/A'}\n`;
+                        csvContent += `Q Factor,${data.frequencyData.qFactor?.toFixed(4) || 'N/A'}\n`;
+                        csvContent += `Bandwidth (Hz),${data.frequencyData.bandwidth?.toFixed(4) || 'N/A'}\n`;
                     }
                     
                     // Create download link

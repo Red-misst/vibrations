@@ -198,13 +198,13 @@
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
                 <div class="text-3xl font-bold text-blue-400 mb-2" id="frequencyValue">0.00</div>
-                <div class="text-gray-300 font-medium">Frequency (Hz)</div>
-                <div class="text-xs text-gray-500 mt-1">Dominant Z-axis frequency</div>
+                <div class="text-gray-300 font-medium">Natural Frequency (Hz)</div>
+                <div class="text-xs text-gray-500 mt-1">Primary resonance frequency</div>
             </div>
             <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
-                <div class="text-3xl font-bold text-green-400 mb-2" id="dampingValue">0.0000</div>
-                <div class="text-gray-300 font-medium">Damping Ratio</div>
-                <div class="text-xs text-gray-500 mt-1">Vertical damping</div>
+                <div class="text-3xl font-bold text-green-400 mb-2" id="qFactorValue">0.0</div>
+                <div class="text-gray-300 font-medium">Q Factor</div>
+                <div class="text-xs text-gray-500 mt-1">Quality factor</div>
             </div>
             <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
                 <div class="text-3xl font-bold text-purple-400 mb-2" id="amplitudeValue">0.000</div>
@@ -287,14 +287,14 @@
             </div>
         </div>
         
-        <!-- Mechanical Engineering Calculations -->
+        <!-- Natural Frequency Calculations -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
                 <i class="fas fa-cogs text-yellow-400 mr-2"></i>
-                Mechanical Engineering Analysis
+                Frequency Analysis Results
             </h3>
             <div class="engineering-data" id="engineeringData">
-                <!-- Will be populated with calculation results -->
+                <!-- Will be populated with frequency calculation results -->
             </div>
         </div>
         
@@ -370,8 +370,7 @@
                             }
                         }
                     }
-                }
-            });
+                });
             
             // Delta Z Chart
             const deltaZCtx = document.getElementById('deltaZChart').getContext('2d');
@@ -419,8 +418,7 @@
                             }
                         }
                     }
-                }
-            });
+                });
             
             // Frequency Chart
             const frequencyCtx = document.getElementById('frequencyChart').getContext('2d');
@@ -487,8 +485,7 @@
                             beginAtZero: true
                         }
                     }
-                }
-            });
+                });
             
             console.log("Charts initialized successfully");
         }
@@ -722,12 +719,12 @@
             dataPointCount++;
             document.getElementById('dataPointCount').textContent = dataPointCount;
 
-            // Update real-time metrics
+            // Update real-time metrics for ANY vibration magnitude
             if (data.frequency !== undefined) {
                 document.getElementById('frequencyValue').textContent = data.frequency.toFixed(2);
             }
-            if (data.damping !== undefined) {
-                document.getElementById('dampingValue').textContent = data.damping.toFixed(4);
+            if (data.qFactor !== undefined) {
+                document.getElementById('qFactorValue').textContent = data.qFactor.toFixed(1);
             }
             if (data.amplitude !== undefined) {
                 document.getElementById('amplitudeValue').textContent = data.amplitude.toFixed(3);
@@ -746,11 +743,11 @@
                 timestamp = new Date().toLocaleTimeString();
             }
             
-            // Add data to raw Z-axis chart
+            // Add data to raw Z-axis chart - NO THRESHOLD FILTERING
             rawZChart.data.labels.push(timestamp);
             rawZChart.data.datasets[0].data.push(data.rawZ || 0);
 
-            // Add data to delta Z-axis chart
+            // Add data to delta Z-axis chart - NO THRESHOLD FILTERING
             deltaZChart.data.labels.push(timestamp);
             deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
 
@@ -857,39 +854,37 @@
         }
 
         function updateResonanceData(data) {
-            // Update frequency chart if frequencies are available
+            // Update frequency chart for ANY frequency data available
             if (data.frequencies && data.magnitudes) {
                 console.log("Updating frequency chart with data points:", data.frequencies.length);
                 frequencyChart.data.labels = data.frequencies;
                 frequencyChart.data.datasets[0].data = data.magnitudes;
                 frequencyChart.update();
             } else {
-                console.log("No frequency data available in resonance update");
-                // Try to generate synthetic data if we have a natural frequency
-                if (data.frequency) {
+                console.log("No frequency data available in frequency update");
+                // Generate synthetic data for any detected frequency
+                if (data.frequency && data.frequency > 0) {
                     generateFrequencyResponseData({
                         naturalFrequency: data.frequency,
-                        dampingRatios: [data.damping]
+                        qFactor: data.qFactor || 1
                     });
                 }
             }
             
-            // Update engineering data
+            // Update engineering data for ANY vibration analysis
             const engineeringDataEl = document.getElementById('engineeringData');
             engineeringDataEl.innerHTML = '';
             
-            // Create data items for each engineering calculation
+            // Create data items for each frequency calculation
             const calculations = [
                 { title: 'Natural Frequency', value: `${data.frequency?.toFixed(2) || 0} Hz` },
                 { title: 'Natural Period', value: `${data.naturalPeriod?.toFixed(4) || 0} s` },
-                { title: 'Damping Ratio', value: `${data.damping?.toFixed(4) || 0}` },
                 { title: 'Q Factor', value: `${data.qFactor?.toFixed(2) || 0}` },
+                { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
                 { title: 'Stiffness (est.)', value: `${data.stiffness?.toFixed(2) || 0} N/m` },
-                { title: 'Damping Coefficient', value: `${data.dampingCoefficient?.toFixed(3) || 0} Ns/m` },
                 { title: 'RMS Value', value: `${data.rms?.toFixed(4) || 0}` },
                 { title: 'Crest Factor', value: `${data.crestFactor?.toFixed(2) || 0}` },
-                { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
-                { title: 'Resonance Magnification', value: `${data.resonanceMagnification?.toFixed(2) || 0}×` }
+                { title: 'Peak Amplitude', value: `${data.amplitude?.toFixed(3) || 0} g` }
             ];
             
             calculations.forEach(calc => {

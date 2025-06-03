@@ -11,6 +11,7 @@ const VibrationDataSchema = new mongoose.Schema({
   deltaZ: { type: Number, required: true },
   rawZ: { type: Number, required: true },
   magnitude: { type: Number, default: 0 }, // Same as deltaZ for single axis
+  frequency: { type: Number, default: 0 }, // Calculated natural frequency
   receivedAt: { type: Date, default: Date.now }
 });
 

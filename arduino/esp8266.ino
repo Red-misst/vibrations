@@ -6,8 +6,8 @@
 #include <WiFiClientSecure.h>
 
 // WiFi Configuration
-const char* ssid = "YOUR_SSID";
-const char* password = "YOUR_PASSWORD";
+const char* ssid = "Galaxy";
+const char* password = "Barake2023";
 
 // WebSocket Server Configuration - Updated for secure connection
 const char* host = "vibrations.onrender.com";
@@ -25,11 +25,11 @@ unsigned long lastDetectionTime = 0;
 const unsigned long debounceDelay = 100;  // Faster sampling for frequency analysis
 
 // Z-axis frequency calculation buffers
-const int BUFFER_SIZE = 32;
+const int BUFFER_SIZE = 64;  // Increased for better frequency resolution
 float zAxisBuffer[BUFFER_SIZE];
 int bufferIndex = 0;
 unsigned long lastSampleTime = 0;
-const unsigned long sampleInterval = 50; // 20Hz sampling
+const unsigned long sampleInterval = 50; // 20Hz sampling for frequency analysis
 
 // Device identification
 String deviceId = "ESP8266_" + String(ESP.getChipId(), HEX);
@@ -45,7 +45,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         Serial.printf("WebSocket Connected to: %s\n", payload);
         digitalWrite(LED_BUILTIN, LOW);
         
-        // Send connection message with device info - ensure this happens immediately
+        // Send connection message with device info for frequency analysis
         String connectMsg = "{\"type\":\"device_connected\",\"deviceId\":\"" + deviceId + "\"}";
         webSocket.sendTXT(connectMsg);
         
@@ -93,7 +93,7 @@ void setup() {
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   
-  Serial.println("Z-Axis Vibration Monitor Ready - Device ID: " + deviceId);
+  Serial.println("Z-Axis Natural Frequency Monitor Ready - Device ID: " + deviceId);
 }
 
 void loop() {
@@ -103,7 +103,7 @@ void loop() {
   if (millis() - lastSampleTime >= sampleInterval) {
     mySensor.accelUpdate();
 
-    // Only read Z-axis (vertical) acceleration
+    // Only read Z-axis (vertical) acceleration for frequency analysis
     float az = mySensor.accelZ();
 
     // Calculate delta for Z-axis only
@@ -113,11 +113,11 @@ void loop() {
     zAxisBuffer[bufferIndex] = az;
     bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 
-    // Detect significant Z-axis vibration
+    // Detect significant Z-axis vibration for frequency analysis
     bool isVibration = (deltaZ > vibrationThreshold);
 
     if (isVibration && millis() - lastDetectionTime > debounceDelay) {
-      // Z-axis focused data packet
+      // Z-axis focused data packet for natural frequency analysis
       StaticJsonDocument<150> doc;
       doc["type"] = "vibration_data";
       doc["deviceId"] = deviceId;
@@ -129,7 +129,7 @@ void loop() {
       String payload;
       serializeJson(doc, payload);
 
-      Serial.println("Z-AXIS VIBRATION: " + payload);
+      Serial.println("Z-AXIS FREQUENCY DATA: " + payload);
       webSocket.sendTXT(payload);
       lastDetectionTime = millis();
     }
@@ -138,5 +138,5 @@ void loop() {
     lastSampleTime = millis();
   }
 
-  delay(10); // Small delay to prevent overwhelming the system
+  delay(10); // Small delay to prevent overwhelming the frequency analysis
 }
