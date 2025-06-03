@@ -599,7 +599,7 @@ function estimateFrequencyFromPeaks(data, samplingFreq) {
       }
       lastDirection = direction;
     }
-  }
+  } 
   
   if (crossings === 0) return 0;
   
