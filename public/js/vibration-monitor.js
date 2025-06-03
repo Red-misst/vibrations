@@ -19,6 +19,8 @@ class VibrationMonitor {
             maxVibration: 0
         };
         this.frequencyChart = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
 
         this.initChart();
         this.initFrequencyChart();
@@ -27,29 +29,62 @@ class VibrationMonitor {
     }
 
     connect() {
+        console.log("Attempting WebSocket connection...");
+        
+        // Close existing connection if any
+        if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+            this.ws.close();
+        }
+        
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Update the WebSocket URL to use the '/web' endpoint that the server expects
-        this.ws = new WebSocket(`${protocol}//${window.location.host}/web?client=true`);
+        const host = window.location.host;
+        
+        // Add client identifier to help server route the connection properly
+        const wsUrl = `${protocol}//${host}/web?client=true`;
+        console.log(`Connecting to WebSocket at: ${wsUrl}`);
+        
+        try {
+            this.ws = new WebSocket(wsUrl);
 
-        this.ws.onopen = () => {
-            this.updateConnectionStatus(true);
-            this.loadSessions();
-        };
+            this.ws.onopen = () => {
+                console.log("WebSocket connection established");
+                this.updateConnectionStatus(true);
+                this.reconnectAttempts = 0; // Reset reconnect counter on success
+                this.loadSessions();
+            };
 
-        this.ws.onclose = () => {
-            this.updateConnectionStatus(false);
+            this.ws.onclose = (event) => {
+                console.log(`WebSocket closed with code: ${event.code}, reason: ${event.reason || 'No reason provided'}`);
+                this.updateConnectionStatus(false);
+                
+                // Implement exponential backoff for reconnection
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+                    this.reconnectAttempts++;
+                    
+                    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts} of ${this.maxReconnectAttempts})`);
+                    setTimeout(() => this.connect(), delay);
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.updateConnectionStatus(false);
+            };
+        } catch (error) {
+            console.error('Error creating WebSocket connection:', error);
+            // Fallback to reconnect after a delay
             setTimeout(() => this.connect(), 3000);
-        };
-
-        this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleMessage(data);
-        };
-
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.updateConnectionStatus(false);
-        };
+        }
     }
 
     handleMessage(data) {
@@ -68,6 +103,10 @@ class VibrationMonitor {
                 break;
             case 'session_data':
                 this.loadSessionData(data);
+                break;
+            case 'frequency_data':
+                // Add handler for frequency data
+                this.updateFrequencyDisplay(data);
                 break;
         }
     }    initChart() {
@@ -245,10 +284,14 @@ class VibrationMonitor {
 
     startTest(sessionName) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log(`Starting test with name: ${sessionName}`);
             this.ws.send(JSON.stringify({
                 type: 'start_test',
                 sessionName: sessionName
             }));
+        } else {
+            console.error("WebSocket not connected. Cannot start test.");
+            alert("Connection to server lost. Please refresh the page and try again.");
         }
     }
 
@@ -257,14 +300,19 @@ class VibrationMonitor {
             this.ws.send(JSON.stringify({
                 type: 'stop_test'
             }));
+        } else {
+            console.error("WebSocket not connected. Cannot stop test.");
         }
     }
 
     loadSessions() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log("Requesting sessions list");
             this.ws.send(JSON.stringify({
                 type: 'get_sessions'
             }));
+        } else {
+            console.error("WebSocket not connected. Cannot load sessions.");
         }
     }
 
@@ -412,6 +460,8 @@ class VibrationMonitor {
 
     viewSession(sessionId) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log(`Requesting data for session: ${sessionId}`);
+            
             // First, find the session details from the sessions table
             const rows = document.querySelectorAll('#sessions-table tr');
             let sessionDetails = null;
@@ -441,6 +491,9 @@ class VibrationMonitor {
                 type: 'get_session_data',
                 sessionId: sessionId
             }));
+        } else {
+            console.error("WebSocket not connected. Cannot view session.");
+            alert("Connection to server lost. Please refresh the page.");
         }
     }
 
@@ -505,6 +558,22 @@ class VibrationMonitor {
         const bandwidth = frequencyData.bandwidth || 0;
         document.getElementById('bandwidth').textContent = 
             bandwidth > 0 ? `${bandwidth.toFixed(3)} Hz` : '0.000 Hz';
+        
+        // If we have error-free frequency data from the server, use it directly
+        if (frequencyData.frequencies && frequencyData.magnitudes && 
+            frequencyData.frequencies.length > 0 && frequencyData.magnitudes.length > 0) {
+            
+            console.log("Using server-provided frequency data");
+            
+            try {
+                this.frequencyChart.data.labels = frequencyData.frequencies;
+                this.frequencyChart.data.datasets[0].data = frequencyData.magnitudes;
+                this.frequencyChart.update();
+                return;
+            } catch (error) {
+                console.error("Error updating frequency chart with server data:", error);
+            }
+        }
         
         // Generate frequency spectrum data for ANY vibration magnitude
         if (frequencyData.naturalFrequency || frequencyData.frequencies) {
@@ -600,5 +669,6 @@ class VibrationMonitor {
 
 // Initialize the monitor after page loads
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("Initializing Vibration Monitor");
     window.monitor = new VibrationMonitor();
 });

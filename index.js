@@ -7,6 +7,8 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+// Add the import for our new FFT utility functions
+import { performSimpleFFT, calculateQFactor } from './utils/fftUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
