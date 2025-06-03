@@ -28,7 +28,8 @@ class VibrationMonitor {
 
     connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.ws = new WebSocket(`${protocol}//${window.location.host}?client=true`);
+        // Update the WebSocket URL to use the '/web' endpoint that the server expects
+        this.ws = new WebSocket(`${protocol}//${window.location.host}/web?client=true`);
 
         this.ws.onopen = () => {
             this.updateConnectionStatus(true);

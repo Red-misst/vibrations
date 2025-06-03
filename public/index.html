@@ -213,7 +213,7 @@
             </div>
             <div class="metric-card bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 text-center">
                 <div class="text-3xl font-bold text-orange-400 mb-2" id="currentZValue">0.000</div>
-                <div class="text-gray-300 font-medium">Current Z-Delta (g)</div>
+                <div class="text-gray-300 font-medium">Z-Axis Value (g)</div>
                 <div class="text-xs text-gray-500 mt-1">Live vertical vibration</div>
             </div>
         </div>
@@ -305,7 +305,7 @@
                 Documentation
             </h3>
             <p class="mb-4 text-gray-300">For detailed information about vibration analysis formulas and methodologies used in this application, please refer to the project README.</p>
-            <a href="https://github.com/yourusername/vibbration" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+            <a href="https://github.com/yourusername/vibbration" target="_blank" rel="noopener noreferrer" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
                 <i class="fab fa-github mr-2"></i>
                 View Project Documentation
             </a>
@@ -638,9 +638,9 @@
                         document.getElementById('frequencyValue').textContent = data.resonanceData.naturalFrequency.toFixed(2);
                     }
                     
-                    // Update damping ratio metric
-                    if (data.resonanceData.dampingRatios && data.resonanceData.dampingRatios.length > 0) {
-                        document.getElementById('dampingValue').textContent = data.resonanceData.dampingRatios[0].toFixed(4);
+                    // Update Q Factor metric (fixed reference from dampingValue to qFactorValue)
+                    if (data.resonanceData.qFactor) {
+                        document.getElementById('qFactorValue').textContent = data.resonanceData.qFactor.toFixed(1);
                     }
                     
                     // Update peak amplitude metric
@@ -662,10 +662,10 @@
             }
         }
         
-        // New function to generate frequency response data
+        // Fixed function to generate frequency response data with better error handling
         function generateFrequencyResponseData(resonanceData) {
-            if (!resonanceData.naturalFrequency) {
-                console.log("No natural frequency data available");
+            if (!resonanceData) {
+                console.log("No resonance data available");
                 return;
             }
             
@@ -675,19 +675,22 @@
                 
                 console.log("Using server-provided frequency data");
                 
-                // Use the provided frequency and magnitude data
-                frequencyChart.data.labels = resonanceData.frequencies;
-                frequencyChart.data.datasets[0].data = resonanceData.magnitudes;
-                frequencyChart.update();
+                try {
+                    // Use the provided frequency and magnitude data
+                    frequencyChart.data.labels = [...resonanceData.frequencies];
+                    frequencyChart.data.datasets[0].data = [...resonanceData.magnitudes];
+                    frequencyChart.update();
+                } catch (error) {
+                    console.error("Error updating frequency chart with server data:", error);
+                }
                 return;
             }
             
             // Fallback: Generate synthetic frequency response curve if actual data isn't available
             console.log("Generating synthetic frequency response curve");
             
-            const fn = resonanceData.naturalFrequency;
-            const damping = resonanceData.dampingRatios && resonanceData.dampingRatios.length > 0 ? 
-                            resonanceData.dampingRatios[0] : 0.05;
+            const fn = resonanceData.naturalFrequency || 1; // Default to 1 Hz if undefined
+            const damping = resonanceData.qFactor ? (1 / (2 * resonanceData.qFactor)) : 0.05;
             
             // Generate points along a frequency response curve
             const freqMin = Math.max(0.1, fn * 0.1);
@@ -708,11 +711,14 @@
                 amplitudes.push(amplitude);
             }
             
-            frequencyChart.data.labels = frequencies;
-            frequencyChart.data.datasets[0].data = amplitudes;
-            frequencyChart.update();
-            
-            console.log("Frequency chart updated with points:", frequencies.length);
+            try {
+                frequencyChart.data.labels = frequencies;
+                frequencyChart.data.datasets[0].data = amplitudes;
+                frequencyChart.update();
+                console.log("Frequency chart updated with points:", frequencies.length);
+            } catch (error) {
+                console.error("Error updating frequency chart with synthetic data:", error);
+            }
         }
         
         function updateVibrationData(data) {
@@ -743,25 +749,30 @@
                 timestamp = new Date().toLocaleTimeString();
             }
             
-            // Add data to raw Z-axis chart - NO THRESHOLD FILTERING
-            rawZChart.data.labels.push(timestamp);
-            rawZChart.data.datasets[0].data.push(data.rawZ || 0);
+            // Safely update charts with null checks
+            try {
+                // Add data to raw Z-axis chart - NO THRESHOLD FILTERING
+                rawZChart.data.labels.push(timestamp);
+                rawZChart.data.datasets[0].data.push(data.rawZ || 0);
 
-            // Add data to delta Z-axis chart - NO THRESHOLD FILTERING
-            deltaZChart.data.labels.push(timestamp);
-            deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
+                // Add data to delta Z-axis chart - NO THRESHOLD FILTERING
+                deltaZChart.data.labels.push(timestamp);
+                deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
 
-            // Keep only last 50 data points
-            const maxPoints = 50;
-            if (rawZChart.data.labels.length > maxPoints) {
-                rawZChart.data.labels.shift();
-                rawZChart.data.datasets[0].data.shift();
-                deltaZChart.data.labels.shift();
-                deltaZChart.data.datasets[0].data.shift();
+                // Keep only last 50 data points
+                const maxPoints = 50;
+                if (rawZChart.data.labels.length > maxPoints) {
+                    rawZChart.data.labels.shift();
+                    rawZChart.data.datasets[0].data.shift();
+                    deltaZChart.data.labels.shift();
+                    deltaZChart.data.datasets[0].data.shift();
+                }
+
+                rawZChart.update('none');
+                deltaZChart.update('none');
+            } catch (error) {
+                console.error("Error updating vibration charts:", error);
             }
-
-            rawZChart.update('none');
-            deltaZChart.update('none');
         }
 
         function updateConnectionStatus(status) {
