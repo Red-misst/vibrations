@@ -7,6 +7,7 @@ const TestSessionSchema = new mongoose.Schema({
     index: true,
     unique: true
   },
+  testMass: { type: Number, default: 1.0 }, // Mass in kg for force calculations
   startTime: { type: Date, default: Date.now },
   endTime: { type: Date },
   isActive: { type: Boolean, default: true },

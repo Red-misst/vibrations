@@ -357,6 +357,17 @@ button:focus {
   border-color: var(--primary);
 }
 
+/* Session selector area styling */
+.bg-gray-750 {
+  background-color: #2d3748;
+}
+
+/* Session status indicator */
+#sessionStatusIndicator {
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* Chat fullscreen mode - Improved */
 .chat-fullscreen {
   position: fixed !important;
@@ -491,26 +502,77 @@ body.chat-active::before {
 }
 
 /* Code block styling for chat messages */
-.message-content pre.code-block {
+.message-content pre {
   background-color: var(--gray-900);
   border-radius: 0.5rem;
   padding: 1rem;
   overflow-x: auto;
   margin: 0.75rem 0;
   border: 1px solid var(--gray-700);
+  position: relative;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, Monaco, 'Andale Mono', monospace;
 }
 
-.message-content code.inline-code {
-  background-color: var(--gray-900);
+.message-content pre code {
+  display: block;
+  line-height: 1.5;
+  font-size: 0.9em;
+  color: #e2e8f0;
+}
+
+.message-content code {
+  background-color: rgba(30, 41, 59, 0.7);
   padding: 0.2rem 0.4rem;
   border-radius: 0.25rem;
-  font-family: monospace;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, Monaco, 'Andale Mono', monospace;
+  font-size: 0.9em;
+  color: #93c5fd;
+}
+
+/* Table styling for chat messages */
+.message-content table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: collapse;
   font-size: 0.9em;
 }
 
+.message-content table th {
+  background-color: var(--gray-800);
+  color: #93c5fd;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.5rem;
+}
+
+.message-content table td {
+  padding: 0.5rem;
+  border-top: 1px solid var(--gray-700);
+  border-bottom: 1px solid var(--gray-700);
+}
+
+.message-content table tr:nth-child(even) {
+  background-color: rgba(30, 41, 59, 0.3);
+}
+
 /* Chat message content enhancements */
+.message-container {
+  margin-bottom: 1rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.user-message, .assistant-message {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.user-message:hover, .assistant-message:hover {
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
 .message-content p {
   margin-bottom: 0.75rem;
+  line-height: 1.5;
 }
 
 .message-content h3 {
@@ -518,6 +580,9 @@ body.chat-active::before {
   font-size: 1.2rem;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(156, 163, 175, 0.4);
+  color: #60a5fa;
 }
 
 .message-content h4 {
@@ -525,16 +590,116 @@ body.chat-active::before {
   font-size: 1.1rem;
   margin-top: 0.75rem;
   margin-bottom: 0.5rem;
+  color: #93c5fd;
 }
 
 .message-content ul, .message-content ol {
-  margin-left: 1rem;
+  margin-left: 1.5rem;
   margin-bottom: 0.75rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.message-content ul li, .message-content ol li {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.message-content strong {
+  color: #93c5fd;
+  font-weight: 600;
 }
 
 .message-content hr {
   margin: 1rem 0;
-  border-color: var(--gray-700);
+  border-color: rgba(156, 163, 175, 0.4);
+}
+
+/* Animated dots for typing indicator */
+.typing-dots {
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
+
+.typing-dots span {
+  height: 5px;
+  width: 5px;
+  margin-right: 3px;
+  background-color: rgba(156, 163, 175, 0.7);
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+  margin-right: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Markdown styling for chat messages */
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  font-weight: bold;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content h1 {
+  font-size: 1.5rem;
+}
+
+.markdown-content h2 {
+  font-size: 1.3rem;
+}
+
+.markdown-content h3 {
+  font-size: 1.1rem;
+}
+
+.markdown-content ul, .markdown-content ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.markdown-content ul {
+  list-style-type: disc;
+}
+
+.markdown-content ol {
+  list-style-type: decimal;
+}
+
+.markdown-content code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.markdown-content pre {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.markdown-content p {
+  margin: 0.5rem 0;
+}
+
+.markdown-content a {
+  color: #3b82f6;
+  text-decoration: underline;
 }
 
 /* Typing indicator animation */

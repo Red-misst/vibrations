@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Z-Axis Vibration Monitor - Real-time Analysis</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Z-Axis Vibration Monitor - Real-time Analysis</title>    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link href="/css/styles.css" rel="stylesheet">
+    <link href="/css/chat-enhancements.css" rel="stylesheet">
 </head>
 <body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-gray-100">
     <!-- Delete Confirmation Modal -->
@@ -48,6 +49,11 @@
                         class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
                         placeholder="Enter test session name">
                     <div id="sessionNameError" class="text-xs text-red-400 mt-1 hidden"></div>
+                </div>
+                <div class="flex-1">
+                    <label for="testMass" class="block text-sm font-medium text-gray-400 mb-1">Test Mass (kg)</label>
+                    <input type="number" id="testMass" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
+                        placeholder="Mass in kg" value="1" min="0.01" step="0.01">
                 </div>
                 <div class="flex items-end">
                     <button id="startSessionBtn" 
@@ -188,15 +194,28 @@
                     </table>
                 </div>
             </div>
-        </div>
-
-        <!-- Natural Frequency Graph -->
+        </div>        <!-- Natural Frequency Graph -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
                 <i class="fas fa-wave-square text-green-400 mr-2"></i>
                 Natural Frequency Analysis
             </h3>
-            <div class="frequency-graph">
+            <div class="mb-4 flex items-center space-x-4">
+                <div class="flex-1">
+                    <label for="sessionName" class="block text-sm font-medium text-gray-400 mb-1">Session Name</label>
+                    <input type="text" id="sessionName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="Enter session name">
+                </div>
+                <div class="flex-1">
+                    <label for="testMass" class="block text-sm font-medium text-gray-400 mb-1">Test Mass (kg)</label>
+                    <input type="number" id="testMass" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="Mass in kg" value="1" min="0.01" step="0.01">
+                </div>
+                <div class="flex-none mt-6">
+                    <button id="startSessionBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center">
+                        <i class="fas fa-play mr-2"></i>Start New Session
+                    </button>
+                </div>
+            </div>
+            <div class="frequency-graph" style="height: 300px;">
                 <canvas id="frequencyChart" class="w-full h-full"></canvas>
             </div>
         </div>
@@ -308,10 +327,8 @@
         </div>
         <div id="chatBody" class="flex-1 overflow-y-auto p-4" style="height: 380px;">
             <div id="chatMessages" class="flex flex-col space-y-4">
-                <div class="chat-message message-assistant">
-                    <div class="message-content">Hello! I'm your vibration analysis assistant. How can I help you analyze your data today?</div>
-                    <div class="message-time">AI Assistant</div>
-                </div>
+                <!-- Session selector will be inserted here by JavaScript -->
+                <!-- Messages will be loaded after session selection -->
             </div>
         </div>
         <div id="chatInput" class="p-3 border-t border-gray-700">
@@ -321,7 +338,7 @@
                     <i class="fas fa-paper-plane"></i>
                 </button>
             </div>
-            <div class="text-xs text-gray-500 mt-1">Connected to current session</div>
+            <div class="text-xs text-gray-500 mt-1">Select a session to start chatting</div>
         </div>
     </div>
 

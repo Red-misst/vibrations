@@ -192,7 +192,129 @@ function initializeCharts() {
                 }
             }
         }
-    });
+    });    // Frequency Time Series Chart
+    const frequencyTimeCtx = document.getElementById('frequencyTimeChart')?.getContext('2d');
+    if (frequencyTimeCtx) {
+        window.frequencyTimeChart = new Chart(frequencyTimeCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Frequency (Hz)',
+                    data: [],
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time',
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        ticks: {
+                            color: 'rgb(156, 163, 175)',
+                            maxRotation: 0
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.2)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Frequency (Hz)',
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        ticks: {
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.2)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    // Amplitude Time Series Chart
+    const amplitudeTimeCtx = document.getElementById('amplitudeTimeChart')?.getContext('2d');
+    if (amplitudeTimeCtx) {
+        window.amplitudeTimeChart = new Chart(amplitudeTimeCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Amplitude',
+                    data: [],
+                    borderColor: 'rgb(139, 92, 246)',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time',
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        ticks: {
+                            color: 'rgb(156, 163, 175)',
+                            maxRotation: 0
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.2)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude',
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        ticks: {
+                            color: 'rgb(156, 163, 175)'
+                        },
+                        grid: {
+                            color: 'rgba(75, 85, 99, 0.2)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
 
     debug("Charts initialized successfully");
 }
@@ -390,9 +512,85 @@ function handleSessionData(data) {
             // Update current Z value with last data point
             const lastDeltaZ = data.data[data.data.length - 1].deltaZ;
             document.getElementById('currentZValue').textContent = lastDeltaZ.toFixed(3);
-            
-            // Generate frequency domain data for the natural frequency chart
+              // Generate frequency domain data for the natural frequency chart
             generateFrequencyResponseData(data.frequencyData);
+            
+            // Process frequency and amplitude time series if available
+            if (window.frequencyTimeChart && window.amplitudeTimeChart) {
+                debug("Updating frequency and amplitude time series charts");
+                
+                // Check if we have frequency time series from the TestSession data
+                if (data.frequencyData.frequencyTimeSeries && data.frequencyData.frequencyTimeSeries.length > 0) {
+                    const freqTimeLabels = data.frequencyData.frequencyTimeSeries.map(point => {
+                        return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
+                    });
+                    const freqValues = data.frequencyData.frequencyTimeSeries.map(point => point.frequency);
+                    
+                    window.frequencyTimeChart.data.labels = freqTimeLabels;
+                    window.frequencyTimeChart.data.datasets[0].data = freqValues;
+                    window.frequencyTimeChart.update();
+                } else {
+                    // Generate synthetic frequency time series from the historical data
+                    const timestamps = [];
+                    const frequencies = [];
+                    
+                    // Use a sliding window approach to calculate frequency over time
+                    const windowSize = Math.min(10, Math.floor(data.data.length / 4));
+                    if (windowSize >= 3) { // Need at least 3 points for meaningful frequency calculation
+                        for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
+                            const windowData = data.data.slice(i, i + windowSize);
+                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
+                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
+                                                     
+                            // Use a simple frequency estimation for the window
+                            const freq = data.frequencyData.naturalFrequency || 0;
+                            
+                            timestamps.push(avgTime);
+                            frequencies.push(freq);
+                        }
+                        
+                        window.frequencyTimeChart.data.labels = timestamps;
+                        window.frequencyTimeChart.data.datasets[0].data = frequencies;
+                        window.frequencyTimeChart.update();
+                    }
+                }
+                
+                // Check if we have amplitude time series from the TestSession data
+                if (data.frequencyData.amplitudeTimeSeries && data.frequencyData.amplitudeTimeSeries.length > 0) {
+                    const ampTimeLabels = data.frequencyData.amplitudeTimeSeries.map(point => {
+                        return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
+                    });
+                    const ampValues = data.frequencyData.amplitudeTimeSeries.map(point => point.amplitude);
+                    
+                    window.amplitudeTimeChart.data.labels = ampTimeLabels;
+                    window.amplitudeTimeChart.data.datasets[0].data = ampValues;
+                    window.amplitudeTimeChart.update();
+                } else {
+                    // Generate synthetic amplitude time series from the raw data
+                    const timeLabels = [];
+                    const amplitudes = [];
+                    
+                    // Use a sliding window approach to calculate amplitude over time
+                    const windowSize = Math.min(10, Math.floor(data.data.length / 4));
+                    if (windowSize >= 3) {
+                        for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
+                            const windowData = data.data.slice(i, i + windowSize);
+                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
+                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
+                                                     
+                            // Calculate peak amplitude in this window
+                            const peakAmplitude = Math.max(...windowData.map(d => Math.abs(d.deltaZ)));
+                            
+                            timeLabels.push(avgTime);
+                            amplitudes.push(peakAmplitude);
+                        }
+                        
+                        window.amplitudeTimeChart.data.labels = timeLabels;
+                        window.amplitudeTimeChart.data.datasets[0].data = amplitudes;
+                        window.amplitudeTimeChart.update();
+                    }
+                }
+            }
         }
         
         showNotification("Historical session data loaded successfully", "success");
@@ -505,10 +703,36 @@ function updateVibrationData(data) {
             rawZChart.data.datasets[0].data.shift();
             deltaZChart.data.labels.shift();
             deltaZChart.data.datasets[0].data.shift();
-        }
-
-        rawZChart.update('none');
+        }        rawZChart.update('none');
         deltaZChart.update('none');
+        
+        // Update frequency and amplitude time series if frequency data is available and charts exist
+        if (data.frequency && !viewingHistoricalSession && 
+            window.frequencyTimeChart && window.amplitudeTimeChart) {
+            
+            // Add data to frequency time chart
+            window.frequencyTimeChart.data.labels.push(timestamp);
+            window.frequencyTimeChart.data.datasets[0].data.push(data.frequency || 0);
+            
+            // Add data to amplitude time chart
+            window.amplitudeTimeChart.data.labels.push(timestamp);
+            window.amplitudeTimeChart.data.datasets[0].data.push(Math.abs(data.deltaZ) || 0);
+            
+            // Keep only last 50 data points for time series charts
+            if (window.frequencyTimeChart.data.labels.length > 50) {
+                window.frequencyTimeChart.data.labels.shift();
+                window.frequencyTimeChart.data.datasets[0].data.shift();
+            }
+            
+            if (window.amplitudeTimeChart.data.labels.length > 50) {
+                window.amplitudeTimeChart.data.labels.shift();
+                window.amplitudeTimeChart.data.datasets[0].data.shift();
+            }
+            
+            // Update the charts with minimal performance impact
+            window.frequencyTimeChart.update('none');
+            window.amplitudeTimeChart.update('none');
+        }
     } catch (error) {
         debug("Error updating vibration charts:", error);
     }
@@ -620,6 +844,36 @@ function updateResonanceData(data) {
         }
     }
     
+    // Update frequency time series chart if it exists and we're not viewing historical data
+    if (!viewingHistoricalSession && window.frequencyTimeChart && data.frequency) {
+        const timestamp = new Date().toLocaleTimeString();
+        window.frequencyTimeChart.data.labels.push(timestamp);
+        window.frequencyTimeChart.data.datasets[0].data.push(data.frequency);
+        
+        // Keep only the last 50 points
+        if (window.frequencyTimeChart.data.labels.length > 50) {
+            window.frequencyTimeChart.data.labels.shift();
+            window.frequencyTimeChart.data.datasets[0].data.shift();
+        }
+        
+        window.frequencyTimeChart.update('none');
+    }
+    
+    // Update amplitude time series chart if it exists and we're not viewing historical data
+    if (!viewingHistoricalSession && window.amplitudeTimeChart && data.amplitude) {
+        const timestamp = new Date().toLocaleTimeString();
+        window.amplitudeTimeChart.data.labels.push(timestamp);
+        window.amplitudeTimeChart.data.datasets[0].data.push(data.amplitude);
+        
+        // Keep only the last 50 points
+        if (window.amplitudeTimeChart.data.labels.length > 50) {
+            window.amplitudeTimeChart.data.labels.shift();
+            window.amplitudeTimeChart.data.datasets[0].data.shift();
+        }
+        
+        window.amplitudeTimeChart.update('none');
+    }
+    
     // Update engineering data for ANY vibration analysis
     const engineeringDataEl = document.getElementById('engineeringData');
     engineeringDataEl.innerHTML = '';
@@ -696,11 +950,29 @@ function clearCharts() {
     rawZChart.update();
     deltaZChart.update();
     frequencyChart.update();
+    
+    // Also clear frequency and amplitude time series charts if they exist
+    if (window.frequencyTimeChart) {
+        window.frequencyTimeChart.data.labels = [];
+        window.frequencyTimeChart.data.datasets[0].data = [];
+        window.frequencyTimeChart.update();
+    }
+    
+    if (window.amplitudeTimeChart) {
+        window.amplitudeTimeChart.data.labels = [];
+        window.amplitudeTimeChart.data.datasets[0].data = [];
+        window.amplitudeTimeChart.update();
+    }
 }
 
 function updateSessionsList(sessions) {
     const sessionListEl = document.getElementById('sessionList');
     sessionListEl.innerHTML = '';
+    
+    // Also update chat session selector if available
+    if (typeof window.updateChatSessionSelector === 'function') {
+        window.updateChatSessionSelector(sessions);
+    }
     
     if (!sessions || sessions.length === 0) {
         const row = document.createElement('tr');
@@ -773,6 +1045,41 @@ function viewSession(sessionId) {
     }
     
     showNotification("Loading session data...", "info");
+    
+    // Find the session name from the sessions list
+    const sessionsList = document.querySelectorAll('#sessionList tr');
+    let sessionName = 'Unknown Session';
+    
+    sessionsList.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length > 0) {
+            const buttons = row.querySelectorAll('button');
+            buttons.forEach(button => {
+                if (button.onclick && button.onclick.toString().includes(sessionId)) {
+                    sessionName = cells[0].textContent;
+                }
+            });
+        }
+    });
+      // Update session data
+    socket.send(JSON.stringify({
+        type: 'get_session_data',
+        sessionId: sessionId
+    }));
+    
+    // Add the session to the chat interface and select it
+    if (typeof window.addSessionToChat === 'function') {
+        // Find the session object in the session list to get full details
+        const sessionRows = document.querySelectorAll('#sessionList tr');
+        let sessionObject = { 
+            _id: sessionId, 
+            name: sessionName,
+            createdAt: new Date().toISOString()
+        };
+        
+        // Update the chat interface with this session and select it
+        window.addSessionToChat(sessionObject, true);
+    }
     
     // Request session data
     socket.send(JSON.stringify({
@@ -921,10 +1228,14 @@ document.getElementById('startSessionBtn').addEventListener('click', () => {
         return;
     }
     
+    // Get the mass value
+    const testMass = parseFloat(document.getElementById('testMass').value) || 1.0;
+    
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({
             type: 'start_test',
-            sessionName: sessionName
+            sessionName: sessionName,
+            testMass: testMass
         }));
         
         // Visual feedback

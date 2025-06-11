@@ -1,509 +1,641 @@
 /**
- * Vibration Analysis Chat Interface
- * Provides AI-powered chat assistant for vibration data analysis
+ * Z-Axis Vibration Monitor - Chat Interface JavaScript
+ * Handles chat interactions, session selection, and communications with the AI assistant
  */
 
+// Global chat variables
+let currentChatSession = null;
+let isChatFullscreen = false;
+let chatMessages = [];
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Chat elements
+    // Initialize chat interface
+    initChatInterface();
+});
+
+/**
+ * Initialize the chat interface elements and event listeners
+ */
+function initChatInterface() {
     const chatInterface = document.getElementById('chatInterface');
     const chatHeader = document.getElementById('chatHeader');
     const toggleChat = document.getElementById('toggleChat');
-    const chatMessages = document.getElementById('chatMessages');
     const userMessage = document.getElementById('userMessage');
     const sendMessage = document.getElementById('sendMessage');
+    const chatBody = document.getElementById('chatBody');
     
-    // State variables
-    let sessionSelector;
-    let isChatOpen = false;
-    let isFullscreen = false;
-    let currentSessionId = null;
-    let isWaitingForResponse = false;
-    let sessions = [];
-
-    // Initialize the chat component
-    function initChat() {
-        // Create enhanced UI with fullscreen toggle and session selector
-        createEnhancedUI();
-        
-        // Try to get current session from the main app
-        const sessionIdSpan = document.getElementById('sessionId');
-        if (sessionIdSpan && sessionIdSpan.textContent && sessionIdSpan.textContent !== 'None') {
-            currentSessionId = sessionIdSpan.textContent;
-            updateSessionSelector(currentSessionId);
-            fetchChatHistory(currentSessionId);
-        } else {
-            // Load available sessions for the selector
-            loadAvailableSessions();
-        }
-        
-        // Listen for session changes from the main app
-        document.addEventListener('sessionChanged', (event) => {
-            currentSessionId = event.detail.sessionId;
-            updateSessionSelector(currentSessionId);
-            if (currentSessionId) {
-                addSystemMessage(`Connected to session: ${event.detail.sessionName}`);
-                fetchChatHistory(currentSessionId);
-            }
-        });
-        
-        // Listen for changes in the sessions list
-        document.addEventListener('sessionsListUpdated', (event) => {
-            if (event.detail && event.detail.sessions) {
-                sessions = event.detail.sessions;
-                updateSessionsDropdown(sessions);
-            }
-        });
-        
-        // Add global keyboard event listener for ESC key to exit fullscreen
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && isFullscreen) {
-                exitFullscreen();
-            }
-        });
-        
-        // Check screen size to adjust initial UI
-        adjustForScreenSize();
-        
-        // Listen for window resize events to adjust UI
-        window.addEventListener('resize', adjustForScreenSize);
-    }
-
-    // Create enhanced UI elements
-    function createEnhancedUI() {
-        // Add fullscreen toggle button with better icon
-        const fullscreenToggle = document.createElement('button');
-        fullscreenToggle.id = 'fullscreenToggle';
-        fullscreenToggle.className = 'text-gray-400 hover:text-gray-200 ml-2 p-1 rounded-full hover:bg-gray-600 transition-colors';
-        fullscreenToggle.innerHTML = '<i class="fas fa-expand-alt"></i>';
-        fullscreenToggle.title = 'Toggle fullscreen';
-        fullscreenToggle.setAttribute('aria-label', 'Toggle fullscreen mode');
-        
-        // Add to header next to toggle chat button
-        const chatHeaderControls = document.createElement('div');
-        chatHeaderControls.className = 'chat-controls flex items-center';
-        chatHeaderControls.appendChild(fullscreenToggle);
-        
-        const existingToggle = toggleChat.cloneNode(true);
-        chatHeaderControls.appendChild(existingToggle);
-        
-        // Replace the old toggle button with our new container
-        toggleChat.parentNode.replaceChild(chatHeaderControls, toggleChat);
-        
-        // Update the toggleChat reference to the new button
-        toggleChat = existingToggle;
-        
-        // Add event listener for fullscreen toggle
-        fullscreenToggle.addEventListener('click', toggleFullscreen);
-        
-        // Create session selector
-        createSessionSelector();
-        
-        // Add a close button for fullscreen mode
-        const closeFullscreenBtn = document.createElement('button');
-        closeFullscreenBtn.id = 'closeFullscreenBtn';
-        closeFullscreenBtn.className = 'hidden absolute top-4 right-4 text-gray-400 hover:text-gray-200 bg-gray-800 hover:bg-gray-700 p-2 rounded-full transition-colors';
-        closeFullscreenBtn.innerHTML = '<i class="fas fa-times"></i>';
-        closeFullscreenBtn.title = 'Exit fullscreen';
-        chatInterface.appendChild(closeFullscreenBtn);
-        
-        closeFullscreenBtn.addEventListener('click', exitFullscreen);
-    }
-
-    // Toggle fullscreen mode - Improved implementation
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        
-        // Always make chat visible when toggling fullscreen
-        if (!isChatOpen) {
-            isChatOpen = true;
-        }
-        
-        if (isFullscreen) {
-            // Enter fullscreen mode
-            chatInterface.classList.add('chat-fullscreen');
-            document.body.classList.add('chat-active');
-            document.getElementById('fullscreenToggle').innerHTML = '<i class="fas fa-compress-alt"></i>';
-            document.getElementById('closeFullscreenBtn').classList.remove('hidden');
-            
-            // Focus on input field after transition
-            setTimeout(() => {
-                userMessage.focus();
-            }, 300);
-        } else {
-            exitFullscreen();
-        }
-        
-        // Update visibility after state change
-        updateChatVisibility();
-        
-        // Scroll to bottom after transition
-        setTimeout(scrollToBottom, 300);
-    }
+    // Create session selector in chat body
+    createChatSessionSelector();
     
-    // Exit fullscreen mode - Enhanced with smoother transitions
-    function exitFullscreen() {
-        isFullscreen = false;
-        chatInterface.classList.remove('chat-fullscreen');
-        document.body.classList.remove('chat-active');
-        document.getElementById('fullscreenToggle').innerHTML = '<i class="fas fa-expand-alt"></i>';
-        document.getElementById('closeFullscreenBtn').classList.add('hidden');
-        
-        // Update visibility after state change
-        updateChatVisibility();
-    }
-
-    // Adjust UI based on screen size - Enhanced for better mobile support
-    function adjustForScreenSize() {
-        const isMobile = window.innerWidth < 768;
-        
-        if (isMobile) {
-            chatInterface.classList.add('mobile-chat');
-            
-            // If we're on mobile, adjust chat sizing
-            if (!chatInterface.style.width || chatInterface.style.width !== '100%') {
-                chatInterface.style.width = '100%';
-                chatInterface.style.right = '0';
-                chatInterface.style.bottom = '0';
-            }
-            
-            // If we're in fullscreen mode on mobile, make sure the chat is open
-            if (isFullscreen && !isChatOpen) {
-                isChatOpen = true;
-                updateChatVisibility();
-            }
-        } else {
-            chatInterface.classList.remove('mobile-chat');
-            
-            // Reset custom styles if switching back to desktop
-            if (chatInterface.style.width === '100%') {
-                chatInterface.style.width = '96px';
-                chatInterface.style.right = '1rem';
-            }
-        }
-        
-        // Always scroll to bottom when adjusting size
-        setTimeout(scrollToBottom, 100);
-    }
-
-    // Update chat visibility with improved transitions and positioning
-    function updateChatVisibility() {
-        const isMobile = window.innerWidth < 768;
-        
-        if (isFullscreen) {
-            // In fullscreen mode, we don't use transform
-            chatInterface.style.transform = 'none';
-        } else if (isMobile) {
-            // For mobile, slide up from bottom or hide entirely
-            chatInterface.style.transform = isChatOpen ? 'translateY(0)' : 'translateY(calc(100% - 50px))';
-        } else {
-            // For desktop, partial slide to show header or full display
-            chatInterface.style.transform = isChatOpen ? 'translateY(0)' : 'translateY(450px)';
-        }
-        
-        // Update the toggle button icon
-        toggleChat.innerHTML = isChatOpen 
-            ? '<i class="fas fa-chevron-down"></i>' 
-            : '<i class="fas fa-chevron-up"></i>';
-    }
-
-    // Update sessions in dropdown
-    function updateSessionsDropdown(availableSessions) {
-        sessions = availableSessions;
-        
-        if (!sessionSelector) return;
-        
-        // Remember selected value
-        const currentValue = sessionSelector.value;
-        
-        // Clear existing options except the first one
-        while (sessionSelector.options.length > 1) {
-            sessionSelector.remove(1);
-        }
-        
-        // Add sessions to dropdown
-        sessions.forEach(session => {
-            const option = document.createElement('option');
-            option.value = session._id;
-            
-            // Create formatted label with date
-            let dateStr = '';
-            try {
-                dateStr = new Date(session.startTime).toLocaleDateString();
-            } catch (e) {
-                dateStr = 'Unknown date';
-            }
-            
-            option.text = `${session.name} (${dateStr})`;
-            option.selected = session._id === currentValue;
-            sessionSelector.appendChild(option);
-        });
-    }
-
-    // Update session selector based on current session
-    function updateSessionSelector(sessionId) {
-        if (sessionSelector && sessionId) {
-            sessionSelector.value = sessionId;
-        }
-    }
-
-    // Load available sessions
-    async function loadAvailableSessions() {
-        try {
-            const response = await fetch('/api/sessions');
-            if (response.ok) {
-                const data = await response.json();
-                sessions = data;
-                updateSessionsDropdown(sessions);
-            }
-        } catch (error) {
-            console.error('Error loading sessions:', error);
-        }
-    }
-
-    // Toggle chat open/closed
-    toggleChat.addEventListener('click', () => {
-        isChatOpen = !isChatOpen;
-        updateChatVisibility();
-        
-        // If closing chat and in fullscreen mode, exit fullscreen
-        if (!isChatOpen && isFullscreen) {
-            exitFullscreen();
-        }
+    // Toggle chat visibility
+    toggleChat.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleChatVisibility();
     });
-
-    // Click on header also toggles chat
+    
+    // Toggle chat on header click
     chatHeader.addEventListener('click', (e) => {
-        // Only toggle if not clicking buttons
-        if (!e.target.closest('button') && !e.target.closest('.chat-controls')) {
-            isChatOpen = !isChatOpen;
-            updateChatVisibility();
+        if (e.target !== toggleChat && !toggleChat.contains(e.target)) {
+            toggleChatVisibility();
         }
     });
-
-    // Send message on Enter key
-    userMessage.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !isWaitingForResponse) {
-            sendUserMessage();
-        }
+    
+    // Double click on header to toggle fullscreen
+    chatHeader.addEventListener('dblclick', (e) => {
+        toggleChatFullscreen();
     });
 
-    // Send message on button click
+    // Add fullscreen toggle button to chat header
+    const fullscreenButton = document.createElement('button');
+    fullscreenButton.title = "Toggle Fullscreen";
+    fullscreenButton.className = "text-gray-400 hover:text-gray-200 p-1 rounded-full hover:bg-gray-600 transition-colors mx-1";
+    fullscreenButton.innerHTML = '<i class="fas fa-expand"></i>';
+    fullscreenButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleChatFullscreen();
+    });
+    
+    chatHeader.querySelector('div:last-child').prepend(fullscreenButton);
+    
+    // Send message when button is clicked
     sendMessage.addEventListener('click', () => {
-        if (!isWaitingForResponse) {
-            sendUserMessage();
+        sendChatMessage();
+    });
+    
+    // Send message when Enter key is pressed
+    userMessage.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendChatMessage();
         }
     });
+}
 
-    // Send message to the AI assistant
-    async function sendUserMessage() {
-        const message = userMessage.value.trim();
-        if (!message) return;
-
-        // Check if we have a session ID
-        if (!currentSessionId || currentSessionId === 'None') {
-            addSystemMessage("Please select a session before using the chat assistant.");
-            return;
+/**
+ * Create a session selector dropdown in the chat interface
+ */
+function createChatSessionSelector() {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Create a select element for sessions
+    const sessionSelectorContainer = document.createElement('div');
+    sessionSelectorContainer.className = 'mb-4';
+    
+    const sessionSelector = document.createElement('select');
+    sessionSelector.id = 'chatSessionSelector';
+    sessionSelector.className = 'w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500';
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select a session to analyze...';
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    sessionSelector.appendChild(defaultOption);
+    
+    sessionSelectorContainer.appendChild(sessionSelector);
+    
+    // If chatMessages already has a session selector, replace it
+    const existingSelector = document.querySelector('#chatSessionSelector');
+    if (existingSelector) {
+        existingSelector.parentElement.replaceWith(sessionSelectorContainer);
+    } else {
+        // Otherwise prepend it to chat messages
+        chatMessages.prepend(sessionSelectorContainer);
+    }
+    
+    // Add event listener to session selector
+    sessionSelector.addEventListener('change', (e) => {
+        const sessionId = e.target.value;
+        if (sessionId) {
+            loadChatSession(sessionId);
         }
+    });
+}
 
-        // Add user message to chat
-        addMessage('user', message);
-        userMessage.value = '';
+/**
+ * Update the session selector with available sessions
+ * @param {Array} sessions - List of sessions from the server
+ */
+function updateChatSessionSelector(sessions) {
+    const sessionSelector = document.getElementById('chatSessionSelector');
+    if (!sessionSelector) return;
+    
+    // Keep only the default option
+    while (sessionSelector.options.length > 1) {
+        sessionSelector.remove(1);
+    }
+    
+    // Add options for each session
+    sessions.forEach(session => {
+        const option = document.createElement('option');
+        option.value = session._id;
         
-        // Show typing indicator
-        addTypingIndicator();
-        isWaitingForResponse = true;
+        // Format date string
+        const sessionDate = new Date(session.startTime || session.createdAt).toLocaleDateString();
+        option.textContent = `${session.name} (${sessionDate})`;
+        
+        sessionSelector.appendChild(option);
+    });
+    
+    // If current chat session is selected, select it in the dropdown
+    if (currentChatSession) {
+        sessionSelector.value = currentChatSession;
+    }
+}
 
-        try {
-            const response = await fetch('/api/chat/message', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    sessionId: currentSessionId,
-                    message: message
-                })
-            });
+/**
+ * Load chat history for a selected session
+ * @param {string} sessionId - The ID of the selected session
+ */
+function loadChatSession(sessionId) {
+    if (!sessionId) return;
+    
+    // Show loading indicator
+    showChatLoadingIndicator();
+    
+    // Request chat history from the server
+    fetch(`/api/chat/${sessionId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Error fetching chat history');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Set current chat session
+            currentChatSession = sessionId;
+            
+            // Set chat messages
+            chatMessages = data.messages || [];
+            
+            // Display chat messages
+            displayChatMessages();
+            
+            // Request session data for the AI context
+            // This will update the UI in the main interface
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'get_session_data',
+                    sessionId: sessionId
+                }));
+            }
+            
+            // Enable chat input
+            document.getElementById('userMessage').disabled = false;
+            document.getElementById('sendMessage').disabled = false;
+            document.querySelector('#chatInput .text-xs').textContent = 'Ask about your vibration data...';
+            
+            // Show welcome message if no messages
+            if (chatMessages.length === 0) {
+                addAssistantMessage("Hello! I'm your vibration analysis assistant. How can I help you analyze this session's data?");
+            }
+        })
+        .catch(error => {
+            console.error('Error loading chat session:', error);
+            showNotification('Error loading chat session. Please try again.', 'error');
+        })
+        .finally(() => {
+            removeChatLoadingIndicator();
+        });
+}
 
+/**
+ * Display chat messages in the chat interface
+ */
+function displayChatMessages() {
+    const chatMessagesContainer = document.getElementById('chatMessages');
+    
+    // Clear existing messages except for the session selector
+    const sessionSelector = chatMessagesContainer.querySelector('#chatSessionSelector')?.parentElement;
+    chatMessagesContainer.innerHTML = '';
+    
+    if (sessionSelector) {
+        chatMessagesContainer.appendChild(sessionSelector);
+    }
+    
+    // Add a date separator for better conversation context
+    let lastDate = null;
+    
+    // Display each message with date separators
+    chatMessages.forEach(message => {
+        const messageDate = new Date(message.timestamp);
+        const dateStr = messageDate.toLocaleDateString();
+        
+        // Add date separator if this is a new day
+        if (lastDate !== dateStr) {
+            const separator = document.createElement('div');
+            separator.className = 'flex justify-center my-4';
+            separator.innerHTML = `
+                <div class="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full">
+                    ${formatDateForDisplay(messageDate)}
+                </div>
+            `;
+            chatMessagesContainer.appendChild(separator);
+            lastDate = dateStr;
+        }
+        
+        if (message.role === 'user') {
+            addUserMessageToUI(message.content, message.timestamp);
+        } else if (message.role === 'assistant') {
+            addAssistantMessageToUI(message.content, message.timestamp);
+        }
+    });
+    
+    // If no messages, show a welcome placeholder
+    if (chatMessages.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.className = 'flex flex-col items-center justify-center h-64 text-center';
+        emptyState.innerHTML = `
+            <div class="text-blue-400 text-5xl mb-4">
+                <i class="fas fa-robot"></i>
+            </div>
+            <h3 class="text-gray-300 text-lg font-medium mb-2">Vibration Analysis Assistant</h3>
+            <p class="text-gray-400 max-w-sm">Ask questions about your vibration data or get insights on the test results.</p>
+        `;
+        chatMessagesContainer.appendChild(emptyState);
+    }
+    
+    // Scroll to bottom
+    scrollChatToBottom();
+}
+
+/**
+ * Format date for display in chat
+ * @param {Date} date - The date to format
+ * @returns {string} - Formatted date string
+ */
+function formatDateForDisplay(date) {
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === now.toDateString()) {
+        return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+    } else {
+        return date.toLocaleDateString(undefined, { 
+            weekday: 'short', 
+            month: 'short', 
+            day: 'numeric',
+            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+        });
+    }
+}
+
+/**
+ * Add a user message to the chat UI
+ * @param {string} message - The user message
+ * @param {Date|string} [timestamp] - Optional timestamp
+ */
+function addUserMessageToUI(message, timestamp = null) {
+    const chatMessagesContainer = document.getElementById('chatMessages');
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = 'flex justify-end message-container';
+    
+    // Get current time for timestamp
+    const messageTime = timestamp ? new Date(timestamp) : new Date();
+    const timeStr = messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    messageElement.innerHTML = `
+        <div class="bg-blue-600 text-white rounded-lg py-3 px-4 max-w-[85%] shadow-lg user-message">
+            <div class="flex items-center mb-2">
+                <div class="font-semibold">You</div>
+                <div class="text-xs text-blue-200 ml-auto">${timeStr}</div>
+            </div>
+            <p class="break-words">${escapeHTML(message)}</p>
+        </div>
+    `;
+    
+    chatMessagesContainer.appendChild(messageElement);
+    scrollChatToBottom();
+}
+
+/**
+ * Add an assistant message to the chat UI
+ * @param {string} message - The assistant message
+ * @param {Date|string} [timestamp] - Optional timestamp
+ */
+function addAssistantMessageToUI(message, timestamp = null) {
+    const chatMessagesContainer = document.getElementById('chatMessages');
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = 'flex message-container';
+    
+    // Get current time for timestamp
+    const messageTime = timestamp ? new Date(timestamp) : new Date();
+    const timeStr = messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Convert markdown to HTML for assistant messages with enhanced options
+    const formattedMessage = marked.parse(message, {
+        gfm: true,
+        breaks: true,
+        headerIds: true,
+        smartLists: true
+    });
+    
+    messageElement.innerHTML = `
+        <div class="bg-gray-700 text-gray-100 rounded-lg py-3 px-4 max-w-[85%] shadow-lg assistant-message">
+            <div class="flex items-center mb-2">
+                <div class="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center mr-2">
+                    <i class="fas fa-robot text-xs"></i>
+                </div>
+                <div class="font-semibold text-blue-300">Assistant</div>
+                <div class="text-xs text-gray-400 ml-auto">${timeStr}</div>
+            </div>
+            <div class="markdown-content message-content">${formattedMessage}</div>
+        </div>
+    `;
+    
+    // After rendering, process any special elements for enhanced display
+    const processedMessage = messageElement.querySelector('.markdown-content');
+    
+    // Process tables for better styling
+    const tables = processedMessage.querySelectorAll('table');
+    tables.forEach(table => {
+        table.classList.add('table-auto');
+        const wrapper = document.createElement('div');
+        wrapper.className = 'overflow-x-auto my-3';
+        table.parentNode.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+    });
+    
+    chatMessagesContainer.appendChild(messageElement);
+    scrollChatToBottom();
+}
+
+/**
+ * Add a user message to the UI and chat history
+ * @param {string} message - The user message
+ */
+function addUserMessage(message) {
+    if (!message || !currentChatSession) return;
+    
+    // Add to UI
+    addUserMessageToUI(message);
+    
+    // Add to local messages array
+    chatMessages.push({
+        role: 'user',
+        content: message,
+        timestamp: new Date()
+    });
+}
+
+/**
+ * Add an assistant message to the UI and chat history
+ * @param {string} message - The assistant message
+ */
+function addAssistantMessage(message) {
+    if (!message || !currentChatSession) return;
+    
+    // Add to UI
+    addAssistantMessageToUI(message);
+    
+    // Add to local messages array
+    chatMessages.push({
+        role: 'assistant',
+        content: message,
+        timestamp: new Date()
+    });
+}
+
+/**
+ * Send a chat message to the server
+ */
+function sendChatMessage() {
+    const userMessageInput = document.getElementById('userMessage');
+    const message = userMessageInput.value.trim();
+    
+    if (!message || !currentChatSession) return;
+    
+    // Clear input
+    userMessageInput.value = '';
+    
+    // Add user message to UI
+    addUserMessage(message);
+    
+    // Show typing indicator
+    showTypingIndicator();
+    
+    // Send message to server
+    fetch('/api/chat/message', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            sessionId: currentChatSession,
+            message: message
+        })
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Error sending message');
+            }
+            return response.json();
+        })        .then(data => {
             // Remove typing indicator
             removeTypingIndicator();
-
-            if (!response.ok) {
-                throw new Error('Failed to get assistant response');
-            }
-
-            const data = await response.json();
-            addMessage('assistant', data.message);
             
-        } catch (error) {
+            // Add assistant response to UI
+            addAssistantMessage(data.message);
+        })
+        .catch(error => {
             console.error('Error sending message:', error);
-            addSystemMessage('Error: Could not connect to the AI assistant. Please try again later.');
-        } finally {
-            isWaitingForResponse = false;
-        }
-    }
+            removeTypingIndicator();
+            showNotification('Error sending message. Please try again.', 'error');
+        });
+}
 
-    // Fetch chat history for a session
-    async function fetchChatHistory(sessionId) {
-        try {
-            const response = await fetch(`/api/chat/${sessionId}`);
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Clear existing messages
-                chatMessages.innerHTML = '';
-                
-                // Add messages from history
-                if (data.messages && data.messages.length > 0) {
-                    data.messages.forEach(msg => {
-                        if (msg.role === 'user' || msg.role === 'assistant') {
-                            addMessage(msg.role, msg.content);
-                        }
-                    });
-                } else {
-                    // If no messages, add a welcome message for the selected session
-                    const selectedSession = sessions.find(s => s._id === sessionId);
-                    if (selectedSession) {
-                        const sessionStatus = selectedSession.isActive ? 'active' : 'completed';
-                        addMessage('assistant', 
-                            `Hello! I'm your vibration analysis assistant for the ${sessionStatus} session "${selectedSession.name}". ` +
-                            `Ask me about the vibration data, frequency analysis, or possible causes for specific patterns.`);
-                    }
-                }
-                
-                // Scroll to the bottom after loading messages
-                scrollToBottom();
-            }
-        } catch (error) {
-            console.error('Error fetching chat history:', error);
-        }
-    }
+/**
+ * Show a typing indicator in the chat
+ */
+function showTypingIndicator() {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Create typing indicator
+    const indicator = document.createElement('div');
+    indicator.id = 'typingIndicator';
+    indicator.className = 'flex message-container';
+    
+    indicator.innerHTML = `
+        <div class="bg-gray-700 text-gray-400 rounded-lg py-3 px-4 max-w-[85%] shadow-lg">
+            <div class="flex items-center">
+                <div class="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center mr-2">
+                    <i class="fas fa-robot text-xs"></i>
+                </div>
+                <div class="font-semibold text-blue-300 mr-2">Assistant</div>
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(indicator);
+    scrollChatToBottom();
+}
 
-    // Parse markdown to HTML
-    function parseMarkdown(text) {
-        if (!text) return '';
-        
-        // Process code blocks
-        text = text.replace(/```([^`]*?)```/gs, '<pre class="code-block"><code>$1</code></pre>');
-        
-        // Process inline code
-        text = text.replace(/`([^`]*?)`/g, '<code class="inline-code">$1</code>');
-        
-        // Process bold text
-        text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        
-        // Process italic text
-        text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        
-        // Process numbered lists
-        text = text.replace(/^\d+\.\s+(.*?)$/gm, '<li>$1</li>');
-        text = text.replace(/(<li>.*<\/li>)/s, '<ol>$1</ol>');
-        
-        // Process bullet lists
-        text = text.replace(/^[\-\*]\s+(.*?)$/gm, '<li>$1</li>');
-        text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-        
-        // Process headings (h3 and h4 only for chat)
-        text = text.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
-        text = text.replace(/^#### (.*?)$/gm, '<h4>$1</h4>');
-        
-        // Process horizontal rule
-        text = text.replace(/^---$/gm, '<hr>');
-        
-        // Process paragraphs (any line that's not already HTML)
-        text = text.replace(/^(?!<[oulh]|<li|<pre|<hr)(.+)$/gm, '<p>$1</p>');
-        
-        return text;
+/**
+ * Remove the typing indicator from the chat
+ */
+function removeTypingIndicator() {
+    const indicator = document.getElementById('typingIndicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+/**
+ * Show a loading indicator in the chat
+ */
+function showChatLoadingIndicator() {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Keep the session selector
+    const sessionSelector = chatMessages.querySelector('#chatSessionSelector')?.parentElement;
+    chatMessages.innerHTML = '';
+    
+    if (sessionSelector) {
+        chatMessages.appendChild(sessionSelector);
     }
     
-    // Add a message to the chat with markdown support
-    function addMessage(role, text) {
-        const messageElement = document.createElement('div');
-        messageElement.className = `chat-message message-${role}`;
-        
-        const messageContent = document.createElement('div');
-        messageContent.className = 'message-content';
-        messageContent.innerHTML = parseMarkdown(text);
-        messageElement.appendChild(messageContent);
-        
-        const messageTime = document.createElement('div');
-        messageTime.className = 'message-time';
-        messageTime.textContent = role === 'user' ? 'You' : 'AI Assistant';
-        messageElement.appendChild(messageTime);
-        
-        chatMessages.appendChild(messageElement);
-        scrollToBottom();
-    }
-
-    // Add a system message (gray, centered)
-    function addSystemMessage(text) {
-        const messageElement = document.createElement('div');
-        messageElement.className = 'text-center py-2 text-sm text-gray-400';
-        messageElement.textContent = text;
-        chatMessages.appendChild(messageElement);
-        scrollToBottom();
-    }
-
-    // Add typing indicator
-    function addTypingIndicator() {
-        const typingElement = document.createElement('div');
-        typingElement.id = 'typingIndicator';
-        typingElement.className = 'chat-message message-assistant';
-        
-        const typingDots = document.createElement('div');
-        typingDots.innerHTML = '<span class="typing-dot">.</span><span class="typing-dot">.</span><span class="typing-dot">.</span>';
-        typingDots.className = 'typing-animation';
-        
-        typingElement.appendChild(typingDots);
-        chatMessages.appendChild(typingElement);
-        scrollToBottom();
-    }
-
-    // Remove typing indicator
-    function removeTypingIndicator() {
-        const typingElement = document.getElementById('typingIndicator');
-        if (typingElement) {
-            typingElement.remove();
-        }
-    }
-
-    // Scroll chat to bottom - Improved with smooth scrolling
-    function scrollToBottom() {
-        const chatBody = document.getElementById('chatBody');
-        if (chatBody) {
-            chatBody.scrollTo({
-                top: chatBody.scrollHeight,
-                behavior: 'smooth'
-            });
-        }
-    }
-
-    // Initialize the chat component
-    initChat();
+    // Create loading indicator
+    const indicator = document.createElement('div');
+    indicator.id = 'chatLoadingIndicator';
+    indicator.className = 'flex items-center justify-center py-4';
     
-    // Make functions available to external scripts
-    window.selectChatSession = function(sessionId, sessionName) {
-        currentSessionId = sessionId;
-        updateSessionSelector(sessionId);
-        fetchChatHistory(sessionId);
-        if (sessionName) {
-            addSystemMessage(`Connected to session: ${sessionName}`);
-        }
-    };
+    indicator.innerHTML = `
+        <div class="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+        <span class="ml-2 text-gray-400">Loading chat history...</span>
+    `;
     
-    // Expose fullscreen functions globally - Improved implementation
-    window.chatFullscreen = function() {
-        if (!isFullscreen) {
-            toggleFullscreen();
-        } else {
-            // If already in fullscreen, make sure chat is completely visible
-            isChatOpen = true;
-            updateChatVisibility();
-            scrollToBottom();
-        }
-    };
+    chatMessages.appendChild(indicator);
+}
+
+/**
+ * Remove the chat loading indicator
+ */
+function removeChatLoadingIndicator() {
+    const indicator = document.getElementById('chatLoadingIndicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+/**
+ * Toggle chat visibility
+ */
+function toggleChatVisibility() {
+    const chatInterface = document.getElementById('chatInterface');
+    const toggleIcon = document.querySelector('#toggleChat i');
     
-    window.chatExitFullscreen = function() {
-        if (isFullscreen) exitFullscreen();
-    };
-});
+    if (isChatFullscreen) {
+        // If chat is in fullscreen, first exit fullscreen
+        toggleChatFullscreen();
+        return;
+    }
+    
+    if (chatInterface.style.transform === 'translateY(0px)' || chatInterface.style.transform === 'none') {
+        // Hide chat (keep header visible)
+        chatInterface.style.transform = 'translateY(450px)';
+        toggleIcon.className = 'fas fa-chevron-up';
+    } else {
+        // Show chat
+        chatInterface.style.transform = 'translateY(0)';
+        toggleIcon.className = 'fas fa-chevron-down';
+    }
+}
+
+/**
+ * Toggle fullscreen mode for the chat
+ */
+function toggleChatFullscreen() {
+    const chatInterface = document.getElementById('chatInterface');
+    const body = document.body;
+    const fullscreenButton = document.querySelector('button[title="Toggle Fullscreen"] i');
+    
+    if (isChatFullscreen) {
+        // Exit fullscreen
+        chatInterface.classList.remove('chat-fullscreen');
+        body.classList.remove('chat-active');
+        isChatFullscreen = false;
+        fullscreenButton.className = 'fas fa-expand';
+    } else {
+        // Enter fullscreen
+        chatInterface.style.transform = 'translateY(0)'; // Ensure chat is visible
+        chatInterface.classList.add('chat-fullscreen');
+        body.classList.add('chat-active');
+        isChatFullscreen = true;
+        fullscreenButton.className = 'fas fa-compress';
+    }
+    
+    // Scroll to bottom after transition
+    setTimeout(() => {
+        scrollChatToBottom();
+    }, 300);
+}
+
+/**
+ * Scroll chat to the bottom
+ */
+function scrollChatToBottom() {
+    const chatBody = document.getElementById('chatBody');
+    chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} html - String to escape
+ * @returns {string} - Escaped string
+ */
+function escapeHTML(html) {
+    const div = document.createElement('div');
+    div.textContent = html;
+    return div.innerHTML;
+}
+
+/**
+ * Add a session to the chat UI and select it
+ * @param {Object} session - Session object
+ * @param {Boolean} selectIt - Whether to select this session
+ */
+function addSessionToChat(session, selectIt = false) {
+    const sessionSelector = document.getElementById('chatSessionSelector');
+    if (!sessionSelector) return;
+    
+    // Check if session already exists in the selector
+    let exists = false;
+    for (let i = 0; i < sessionSelector.options.length; i++) {
+        if (sessionSelector.options[i].value === session._id) {
+            exists = true;
+            break;
+        }
+    }
+    
+    // Add if it doesn't exist
+    if (!exists) {
+        const option = document.createElement('option');
+        option.value = session._id;
+        
+        // Format date string
+        const sessionDate = new Date(session.startTime || session.createdAt).toLocaleDateString();
+        option.textContent = `${session.name} (${sessionDate})`;
+        
+        sessionSelector.appendChild(option);
+    }
+    
+    // Select the session if specified
+    if (selectIt) {
+        sessionSelector.value = session._id;
+        loadChatSession(session._id);
+    }
+}
+
+// Export functions to be available globally
+window.updateChatSessionSelector = updateChatSessionSelector;
+window.addSessionToChat = addSessionToChat;

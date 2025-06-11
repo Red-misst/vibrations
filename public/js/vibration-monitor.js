@@ -558,9 +558,7 @@ class VibrationMonitor {
         if (typeof window.updateReportSessions === 'function') {
             window.updateReportSessions(sessions);
         }
-    }
-
-    viewSession(sessionId) {
+    }    viewSession(sessionId) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             console.log(`Requesting data for session: ${sessionId}`);
             
@@ -586,6 +584,11 @@ class VibrationMonitor {
                 document.getElementById('view-session-name').textContent = sessionDetails.name;
                 document.getElementById('view-session-start').textContent = sessionDetails.startTime;
                 document.getElementById('view-session-panel').classList.remove('hidden');
+                
+                // Notify the chat interface about the session selection
+                if (typeof window.selectChatSession === 'function') {
+                    window.selectChatSession(sessionId, sessionDetails.name);
+                }
             }
             
             // Request the session data
@@ -774,3 +777,49 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("Initializing Vibration Monitor");
     window.monitor = new VibrationMonitor();
 });
+
+function updateResonanceData(data) {
+    // Update frequency chart for ANY frequency data available
+    if (data.frequencies && data.magnitudes) {
+        debug("Updating frequency chart with data points:", data.frequencies.length);
+        frequencyChart.data.labels = data.frequencies;
+        frequencyChart.data.datasets[0].data = data.magnitudes;
+        frequencyChart.update();
+    } else {
+        // Generate synthetic data for any detected frequency
+        if (data.frequency && data.frequency > 0) {
+            generateFrequencyResponseData({
+                naturalFrequency: data.frequency,
+                qFactor: data.qFactor || 1
+            });
+        }
+    }
+    
+    // Update engineering data for ANY vibration analysis
+    const engineeringDataEl = document.getElementById('engineeringData');
+    engineeringDataEl.innerHTML = '';
+    
+    // Create data items for each frequency calculation
+    const calculations = [
+        { title: 'Natural Frequency', value: `${data.frequency?.toFixed(2) || 0} Hz` },
+        { title: 'Natural Period', value: `${data.naturalPeriod?.toFixed(4) || 0} s` },
+        { title: 'Q Factor', value: `${data.qFactor?.toFixed(2) || 0}` },
+        { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
+        { title: 'Stiffness (est.)', value: `${data.stiffness?.toFixed(2) || 0} N/m` },
+        { title: 'RMS Value', value: `${data.rms?.toFixed(4) || 0}` },
+        { title: 'Crest Factor', value: `${data.crestFactor?.toFixed(2) || 0}` },
+        { title: 'Peak Amplitude', value: `${data.amplitude?.toFixed(3) || 0} g` },
+        { title: 'Test Mass', value: `${data.testMass?.toFixed(2) || 1.00} kg` },
+        { title: 'Peak Force', value: `${data.peakForce?.toFixed(2) || 0} N` }
+    ];
+    
+    calculations.forEach(calc => {
+        const item = document.createElement('div');
+        item.className = 'flex justify-between text-sm text-gray-300 py-1';
+        item.innerHTML = `
+            <span>${calc.title}</span>
+            <span class="font-mono">${calc.value}</span>
+        `;
+        engineeringDataEl.appendChild(item);
+    });
+}

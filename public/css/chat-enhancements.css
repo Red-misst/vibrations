@@ -1,0 +1,82 @@
+/* Additional Chat UI Enhancements */
+:root {
+  --message-gap: 1.5rem;
+  --message-radius: 0.75rem;
+  --message-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  --user-gradient: linear-gradient(135deg, #2563eb, #1d4ed8);
+  --assistant-gradient: linear-gradient(135deg, #374151, #1f2937);
+  --code-bg: #111827;
+}
+
+/* Enhanced message styling */
+.message-container {
+  margin-bottom: var(--message-gap);
+  max-width: 100%;
+}
+
+.user-message {
+  background: var(--user-gradient);
+  border-radius: var(--message-radius);
+  box-shadow: var(--message-shadow);
+}
+
+.assistant-message {
+  background: var(--assistant-gradient);
+  border-radius: var(--message-radius);
+  box-shadow: var(--message-shadow);
+}
+
+/* Enhanced markdown formatting */
+.markdown-content blockquote {
+  border-left: 3px solid #3b82f6;
+  margin: 0.75rem 0;
+  padding-left: 1rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.markdown-content a {
+  color: #60a5fa;
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.markdown-content a:hover {
+  color: #93c5fd;
+}
+
+/* Features callout boxes */
+.markdown-content .info-box,
+.markdown-content .warning-box,
+.markdown-content .tip-box {
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  border-left: 4px solid;
+}
+
+.markdown-content .info-box {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-left-color: #3b82f6;
+}
+
+.markdown-content .warning-box {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-left-color: #ef4444;
+}
+
+.markdown-content .tip-box {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-left-color: #10b981;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .message-container {
+    margin-bottom: 1rem;
+  }
+  
+  .user-message, .assistant-message {
+    max-width: 90%;
+  }
+}

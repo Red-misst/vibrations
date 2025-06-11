@@ -185,19 +185,42 @@ wss.on('connection', (ws, req) => {
         }
         
         if (data.type === 'start_test') {
-          currentSession = new TestSession({ 
-            name: data.sessionName,
-            zAxisData: []  // Initialize empty array
-          });
-          await currentSession.save();
-          
-          // Broadcast to all web clients
-          const response = JSON.stringify({
-            type: 'test_started',
-            sessionId: currentSession._id,
-            sessionName: currentSession.name
-          });
-          broadcastToWebClients(JSON.parse(response));
+          try {
+            const sessionName = data.sessionName || `Z-Axis Test ${new Date().toLocaleTimeString()}`;
+            const testMass = parseFloat(data.testMass) || 1.0; // Get the mass value with default of 1.0kg
+            
+            // Create a new session
+            currentSession = new TestSession({
+              name: sessionName,
+              testMass: testMass, // Store the mass value
+              startTime: new Date(),
+              isActive: true,
+              zAxisData: []
+            });
+            
+            await currentSession.save();
+            
+            broadcastToWebClients({
+              type: 'test_started',
+              sessionId: currentSession._id,
+              sessionName,
+              testMass // Include mass in broadcast
+            });
+            
+            ws.send(JSON.stringify({
+              type: 'test_started',
+              message: `Test "${sessionName}" started`,
+              sessionId: currentSession._id
+            }));
+            
+          } catch (error) {
+            console.error('Error starting test:', error);
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: `Error starting test: ${error.message}`
+            }));
+          }
+          return;
         }
         
         if (data.type === 'stop_test') {
@@ -464,6 +487,9 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     const dataPoints = session.zAxisData.length;
     console.log(`Processing ${dataPoints} data points for frequency analysis`);
     
+    // Get the mass value from the session (default to 1.0 kg if not specified)
+    const testMass = session.testMass || 1.0;
+    
     // Extract Z-axis raw values for frequency analysis
     const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
     const timestamps = session.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
@@ -507,9 +533,11 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     // Calculate natural frequency characteristics
     const naturalPeriod = naturalFrequency > 0 ? 1 / naturalFrequency : 0;
     
-    // Estimate mass-spring parameters for frequency analysis
-    const unitMass = 1.0;  // kg (assumed)
-    const stiffness = unitMass * Math.pow(2 * Math.PI * naturalFrequency, 2); // N/m
+    // Update to use the actual test mass for stiffness calculation
+    const stiffness = testMass * Math.pow(2 * Math.PI * naturalFrequency, 2); // N/m
+    
+    // Calculate force from acceleration and mass (F = ma)
+    const peakForce = peakAmplitude * testMass; // Force in Newtons
     
     // Calculate Q factor from frequency spectrum (if available)
     let qFactor = 0;
@@ -540,12 +568,13 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
         qFactor,
         rms,
         crestFactor,
-        bandwidth
+        bandwidth,
+        peakForce // Add peak force based on mass
       };
       
       await session.save();
       
-      console.log(`Z-axis natural frequency calculated - Freq: ${naturalFrequency.toFixed(2)}Hz, Q: ${qFactor.toFixed(2)}`);
+      console.log(`Z-axis natural frequency calculated - Freq: ${naturalFrequency.toFixed(2)}Hz, Q: ${qFactor.toFixed(2)}, Force: ${peakForce.toFixed(2)}N`);
     }
     
     return {
@@ -557,8 +586,10 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
       rms: rms,
       crestFactor: crestFactor,
       bandwidth: bandwidth,
+      peakForce: peakForce, // Include peak force in return
       frequencies: fftResult?.frequencies || [],
-      magnitudes: fftResult?.magnitudes || []
+      magnitudes: fftResult?.magnitudes || [],
+      testMass: testMass // Include the test mass in the return
     };
     
   } catch (error) {

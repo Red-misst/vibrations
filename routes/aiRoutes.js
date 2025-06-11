@@ -13,27 +13,6 @@ router.get('/chat/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
     
-    // Validate session ID
-    if (!mongoose.Types.ObjectId.isValid(sessionId)) {
-      return res.status(400).json({ error: 'Invalid session ID' });
-    }
-    
-    // Get chat messages for the session
-    const messages = await ChatMessage.find({ sessionId })
-      .sort({ timestamp: 1 });
-    
-    res.json({ messages });
-  } catch (error) {
-    console.error('Error fetching chat history:', error);
-    res.status(500).json({ error: 'Failed to fetch chat history' });
-  }
-});
-
-// Get chat history for a specific session
-router.get('/chat/:sessionId', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    
     if (!sessionId || !mongoose.Types.ObjectId.isValid(sessionId)) {
       return res.status(400).json({ error: 'Invalid session ID' });
     }
