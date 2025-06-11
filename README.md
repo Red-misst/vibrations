@@ -10,6 +10,8 @@ A real-time vibration monitoring system focused on vertical (Z-axis) motion anal
 - **Secure Connection**: HTTPS/WSS support for cloud deployment
 - **Data Export**: CSV export functionality for further analysis
 - **Session Management**: Organized test sessions with timestamps
+- **NEW - AI Assistant**: DeepSeek-powered chat interface for vibration analysis assistance
+- **NEW - Report Generation**: AI-generated PDF reports with insights and visualizations
 
 ## Architecture
 
@@ -22,6 +24,7 @@ A real-time vibration monitoring system focused on vertical (Z-axis) motion anal
 - **Backend**: Node.js with Express and WebSocket
 - **Database**: MongoDB for session and data storage
 - **Frontend**: Vanilla JavaScript with Chart.js
+- **AI Integration**: DeepSeek API for analysis assistance and report generation
 - **Deployment**: Render.com cloud platform
 
 ## Installation
@@ -30,20 +33,21 @@ A real-time vibration monitoring system focused on vertical (Z-axis) motion anal
 - Node.js 14+
 - MongoDB (local or cloud)
 - Arduino IDE for ESP8266 programming
+- DeepSeek API key
 
 ### Server Setup
 
 1. **Clone and install dependencies**:
    ```bash
    git clone <repository>
-   cd vibbration
+   cd vibration
    npm install
    ```
 
 2. **Environment Configuration**:
    ```bash
    cp .env.example .env
-   # Edit .env with your MongoDB URI and other settings
+   # Edit .env with your MongoDB URI and DeepSeek API key
    ```
 
 3. **Start the server**:
@@ -107,6 +111,17 @@ A real-time vibration monitoring system focused on vertical (Z-axis) motion anal
 
 ## API Endpoints
 
+### Chat & Report API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/chat/:sessionId` | GET | Get chat history for a session |
+| `/api/chat/message` | POST | Send message to AI assistant |
+| `/api/reports/generate` | POST | Generate a new PDF report |
+| `/api/reports` | GET | List all reports |
+| `/api/reports/:reportId` | GET | Get report details |
+| `/api/reports/:reportId/download` | GET | Download report PDF |
+
 ### GET /api/sessions
 Returns all test sessions with metadata.
 
@@ -122,12 +137,20 @@ Deletes the specified session and its vibration data.
 - `start_test`: Begin new test session
 - `stop_test`: End current session
 - `delete_session`: Delete a session
+- `chat_message`: Send a message to the AI assistant
+- `get_chat_history`: Request chat history for a session
+- `generate_report`: Request a new report generation
+- `get_reports`: Get list of available reports
 
 #### Server → Client
 - `vibration_data`: Real-time Z-axis data
 - `session_status`: Session state updates
 - `device_status`: Device connection updates
 - `session_deleted`: Confirms session deletion
+- `chat_response`: AI assistant response
+- `chat_history`: Complete chat history for a session
+- `report_status`: Report generation status updates
+- `reports_list`: List of available reports
 
 ## Deployment
 
@@ -164,6 +187,21 @@ Deletes the specified session and its vibration data.
 4. **Export**: Download session data as CSV
 5. **Delete**: Remove unwanted test sessions
 
+### AI Assistant
+
+1. Click the chat icon in the bottom right corner
+2. Enter your question about vibration data
+3. Receive expert analysis and explanations
+4. Chat history is saved per session
+
+### Report Generation
+
+1. Navigate to the Reports section
+2. Click "Generate Report" button
+3. Select the session to analyze
+4. Wait for AI to process and generate the PDF
+5. Download or view the report directly in the browser
+
 ### Z-Axis Metrics
 
 - **Frequency**: Dominant vibration frequency (Hz)
@@ -179,91 +217,29 @@ The system automatically calculates:
 - Q factor for resonance sharpness
 - Frequency response curves
 
-## Vibration Analysis Formulas
+## Data Analysis
 
-### Natural Frequency (fn)
-```
-fn = (1/2π) * √(k/m)
-```
-Where k is stiffness (N/m) and m is mass (kg)
-
-### Angular Natural Frequency (ωn)
-```
-ωn = 2πfn = √(k/m)
+### Exported CSV Format
+```csv
+Timestamp,DeltaZ,RawZ,ReceivedAt
+12345678,0.123,9.856,2024-01-01T10:00:01Z
 ```
 
-### Natural Period (Tn)
-```
-Tn = 1/fn = 2π * √(m/k)
-```
+### Exported PDF Reports Include
 
-### Damping Ratio (ζ)
-```
-ζ = c / (2 * √(km))
-```
-Where c is damping coefficient (Ns/m)
+- Session metadata (name, duration, date)
+- Key metrics summary (natural frequency, amplitude, Q factor)
+- Time-domain analysis of vibration patterns
+- Frequency-domain analysis with resonance peaks
+- AI-generated insights and recommendations
+- Data visualizations
 
-### Critical Damping
-```
-cc = 2 * √(km)
-```
-
-### System Classification
-- **Underdamped**: ζ < 1 (System oscillates with decreasing amplitude)
-- **Critically Damped**: ζ = 1 (System returns to equilibrium without oscillation in minimal time)
-- **Overdamped**: ζ > 1 (System returns to equilibrium without oscillation but slower)
-
-### Logarithmic Decrement (δ)
-```
-δ = (1/n) * ln(x₁/x₍ₙ₊₁₎)
-```
-Where x₁ and x₍ₙ₊₁₎ are amplitudes n cycles apart
-
-### Damping Ratio from Log Decrement
-```
-ζ = δ / √(4π² + δ²)
-```
-
-### Q Factor
-```
-Q = 1/(2ζ)
-```
-
-### Frequency Response
-```
-X = F/k / √((1-r²)² + (2ζr)²)
-```
-Where r is frequency ratio (f/fn) and F is applied force
-
-### Resonance Frequency (damped)
-```
-ωd = ωn * √(1-ζ²)
-```
-
-### Magnification Factor at Resonance
-```
-MF = 1/(2ζ√(1-ζ²))
-```
-
-### Root Mean Square (RMS)
-```
-RMS = √(1/N * Σ(x²))
-```
-
-### Crest Factor
-```
-CF = |x|peak / xRMS
-```
-
-### Half-Power Bandwidth
-```
-BW = 2 * ζ * ωn
-```
-
-### Quality Factor from Bandwidth
-```
-Q = ωn / BW
-```
+### Resonance Analysis
+The system performs automatic frequency domain analysis:
+- **FFT**: Fast Fourier Transform for frequency content
+- **Peak Detection**: Identifies dominant frequencies
+- **Damping Calculation**: Logarithmic decrement method
+- **Q Factor**: Quality factor calculation
 
 ## Troubleshooting
 
@@ -284,6 +260,18 @@ Q = ωn / BW
    - Check environment variables
    - Verify MongoDB connection string
 
+### Common Issues with AI Features
+
+1. **AI assistant not responding**
+   - Check your DeepSeek API key in .env file
+   - Verify internet connectivity
+   - Check server logs for API rate limiting
+
+2. **Report generation fails**
+   - Ensure session has sufficient data points
+   - Check for MongoDB connection issues
+   - Verify PDF generation dependencies
+
 ### Debug Commands
 
 ```bash
@@ -296,21 +284,6 @@ npm run dev
 # Check WebSocket connections
 # Browser DevTools → Network → WS
 ```
-
-## Data Analysis
-
-### Exported CSV Format
-```csv
-Timestamp,DeltaZ,RawZ,ReceivedAt
-12345678,0.123,9.856,2024-01-01T10:00:01Z
-```
-
-### Resonance Analysis
-The system performs automatic frequency domain analysis:
-- **FFT**: Fast Fourier Transform for frequency content
-- **Peak Detection**: Identifies dominant frequencies
-- **Damping Calculation**: Logarithmic decrement method
-- **Q Factor**: Quality factor calculation
 
 ## Contributing
 

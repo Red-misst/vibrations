@@ -58,12 +58,16 @@ export function performSimpleFFT(signal, samplingFreq) {
     // Calculate bandwidth
     const bandwidth = calculateBandwidth(magnitudes, frequencies, maxIndex);
     
+    // Calculate frequency over time for time-series analysis
+    const frequencyTimeSeries = calculateFrequencyTimeSeries(signal, samplingFreq);
+    
     return {
       frequencies,
       magnitudes,
       dominantFreq,
       bandwidth,
-      peakMagnitude: maxMagnitude
+      peakMagnitude: maxMagnitude,
+      frequencyTimeSeries
     };
   } catch (error) {
     console.error('FFT calculation error:', error);
@@ -71,6 +75,45 @@ export function performSimpleFFT(signal, samplingFreq) {
     // Fallback to simple frequency estimation
     return simpleFrequencyEstimate(signal, samplingFreq);
   }
+}
+
+/**
+ * Calculate frequency changes over time by using windowed segments
+ * @param {Array<number>} signal - Full signal array
+ * @param {number} samplingFreq - Sampling frequency in Hz
+ * @returns {Object} Object with time and frequency arrays
+ */
+function calculateFrequencyTimeSeries(signal, samplingFreq) {
+  if (signal.length < 16) {
+    return {
+      times: [],
+      frequencies: []
+    };
+  }
+  
+  // Define window size and hop size
+  const windowSize = Math.min(32, signal.length / 2);
+  const hopSize = Math.max(4, Math.floor(windowSize / 4));
+  
+  const times = [];
+  const frequencies = [];
+  
+  // Process signal in overlapping windows
+  for (let i = 0; i < signal.length - windowSize; i += hopSize) {
+    const segment = signal.slice(i, i + windowSize);
+    const timePoint = i / samplingFreq; // Time in seconds
+    
+    // Calculate frequency for this segment
+    const result = simpleFrequencyEstimate(segment, samplingFreq);
+    
+    times.push(timePoint);
+    frequencies.push(result.dominantFreq);
+  }
+  
+  return {
+    times,
+    frequencies
+  };
 }
 
 /**

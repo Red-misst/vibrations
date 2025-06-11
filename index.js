@@ -9,6 +9,14 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 // Add the import for our new FFT utility functions
 import { performSimpleFFT, calculateQFactor } from './utils/fftUtils.js';
+// Import models properly - make sure to import them only once
+import TestSession from './models/TestSession.js';
+import ChatMessage from './models/ChatMessage.js';
+import Report from './models/Report.js';
+import DeepseekService from './utils/deepseekService.js';
+
+// Import API routes
+import aiRoutes from './routes/aiRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,12 +25,18 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Initialize Deepseek AI service
+const deepseek = new DeepseekService(process.env.DEEPSEEK_API_KEY);
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json());
+
+// Add AI routes
+app.use('/api', aiRoutes);
 
 // Define public directory path and check if it exists
 const publicPath = path.join(__dirname, 'public');
@@ -61,37 +75,6 @@ mongoose.connect(process.env.MONGODB_URI, {
   maxPoolSize: parseInt(process.env.DB_MAX_POOL_SIZE) || 10,
   minPoolSize: parseInt(process.env.DB_MIN_POOL_SIZE) || 5,
 });
-
-// Updated MongoDB schemas - Z-axis frequency analysis only
-const TestSessionSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  startTime: { type: Date, default: Date.now },
-  endTime: { type: Date },
-  isActive: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
-  zAxisData: [{
-    timestamp: String,
-    deltaZ: Number,
-    rawZ: Number,
-    receivedAt: { type: Date, default: Date.now }
-  }],
-  // Natural frequency analysis fields
-  resonanceFrequencies: [Number], // Hz
-  naturalFrequency: Number,       // Primary natural frequency Hz
-  peakAmplitude: Number,
-  frequencyAnalysisComplete: { type: Boolean, default: false },
-  // Frequency-focused mechanical properties
-  mechanicalProperties: {
-    naturalPeriod: Number,        // seconds
-    stiffness: Number,            // N/m (estimated)
-    qFactor: Number,              // Quality factor
-    rms: Number,                  // Root Mean Square
-    crestFactor: Number,          // Crest Factor
-    bandwidth: Number             // Hz
-  }
-});
-
-const TestSession = mongoose.model('TestSession', TestSessionSchema);
 
 // Simplified VibrationData schema - Z-axis only
 const VibrationDataSchema = new mongoose.Schema({

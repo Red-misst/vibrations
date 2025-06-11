@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 
 const TestSessionSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { 
+    type: String, 
+    required: true,
+    index: true,
+    unique: true
+  },
   startTime: { type: Date, default: Date.now },
   endTime: { type: Date },
   isActive: { type: Boolean, default: true },
@@ -14,10 +19,18 @@ const TestSessionSchema = new mongoose.Schema({
   }],
   // Resonance analysis fields
   resonanceFrequencies: [Number], // Hz
-  dampingRatios: [Number],
-  naturalFrequency: Number,       // Hz
+  naturalFrequency: Number,       // Primary natural frequency Hz
   peakAmplitude: Number,
-  resonanceAnalysisComplete: { type: Boolean, default: false },
+  frequencyAnalysisComplete: { type: Boolean, default: false },
+  // Time series frequency and amplitude data
+  frequencyTimeSeries: [{
+    timestamp: String,
+    frequency: Number
+  }],
+  amplitudeTimeSeries: [{
+    timestamp: String,
+    amplitude: Number
+  }],
   // Mechanical properties
   mechanicalProperties: {
     naturalPeriod: Number,        // seconds
@@ -31,4 +44,7 @@ const TestSessionSchema = new mongoose.Schema({
   }
 });
 
-export default mongoose.model('TestSession', TestSessionSchema);
+// Use mongoose.models to check if the model exists before creating a new one
+const TestSession = mongoose.models.TestSession || mongoose.model('TestSession', TestSessionSchema);
+
+export default TestSession;

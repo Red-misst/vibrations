@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="/css/styles.css" rel="stylesheet">
 </head>
 <body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-gray-100">
@@ -46,6 +47,7 @@
                     <input type="text" id="sessionName" 
                         class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
                         placeholder="Enter test session name">
+                    <div id="sessionNameError" class="text-xs text-red-400 mt-1 hidden"></div>
                 </div>
                 <div class="flex items-end">
                     <button id="startSessionBtn" 
@@ -199,32 +201,133 @@
             </div>
         </div>
         
-        <!-- Natural Frequency Calculations -->
+        <!-- NEW: Time-based Frequency and Amplitude Analysis -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Frequency vs Time Chart -->
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                    <i class="fas fa-chart-line text-blue-400 mr-2"></i>
+                    Frequency vs Time
+                </h3>
+                <div class="relative">
+                    <canvas id="frequencyTimeChart" class="w-full h-64"></canvas>
+                </div>
+                <div class="mt-4 text-center text-sm text-gray-400">
+                    Natural frequency changes over time
+                </div>
+            </div>
+
+            <!-- Amplitude vs Time Chart -->
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                    <i class="fas fa-tachometer-alt text-purple-400 mr-2"></i>
+                    Amplitude vs Time
+                </h3>
+                <div class="relative">
+                    <canvas id="amplitudeTimeChart" class="w-full h-64"></canvas>
+                </div>
+                <div class="mt-4 text-center text-sm text-gray-400">
+                    Z-axis amplitude changes over time
+                </div>
+            </div>
+        </div>
+        
+        <!-- Natural Frequency Calculations - Improved UI with Table -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
                 <i class="fas fa-cogs text-yellow-400 mr-2"></i>
                 Frequency Analysis Results
             </h3>
-            <div class="engineering-data" id="engineeringData">
-                <!-- Will be populated with frequency calculation results -->
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-700">
+                    <thead>
+                        <tr class="bg-gray-700">
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Parameter</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Value</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Unit</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700" id="frequencyResultsTable">
+                        <!-- Will be populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="engineering-data hidden" id="engineeringData">
+                <!-- Keep this as a backup -->
             </div>
         </div>
         
-        <!-- Link to documentation instead of embedding formulas -->
-        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6 text-center">
-            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center justify-center">
-                <i class="fas fa-book text-blue-400 mr-2"></i>
-                Documentation
+        <!-- Report Generator Section -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                <i class="fas fa-file-pdf text-red-400 mr-2"></i>
+                Generate Analysis Report
             </h3>
-            <p class="mb-4 text-gray-300">For detailed information about vibration analysis formulas and methodologies used in this application, please refer to the project README.</p>
-            <a href="https://github.com/yourusername/vibbration" target="_blank" rel="noopener noreferrer" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
-                <i class="fab fa-github mr-2"></i>
-                View Project Documentation
-            </a>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="reportSessionSelect" class="block text-sm font-medium text-gray-400 mb-2">Select Session</label>
+                    <select id="reportSessionSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100">
+                        <option value="">-- Select a session --</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="reportAuthorName" class="block text-sm font-medium text-gray-400 mb-2">Report Author</label>
+                    <input type="text" id="reportAuthorName" placeholder="Your name or organization" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100">
+                </div>
+            </div>
+            <div class="flex justify-end">
+                <button id="generateReportBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium disabled:opacity-50 flex items-center">
+                    <i class="fas fa-file-pdf mr-2"></i>
+                    Generate PDF Report
+                </button>
+            </div>
+            <div id="reportStatus" class="mt-4 text-sm"></div>
+            <div id="reportsList" class="mt-6">
+                <h4 class="text-md font-medium text-gray-300 mb-2">Available Reports</h4>
+                <div id="reportsContainer" class="bg-gray-700 rounded p-2">
+                    <!-- Reports will be listed here -->
+                    <div class="text-gray-400 text-sm p-2">No reports available</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Chat Interface -->
+    <div id="chatInterface" class="fixed bottom-4 right-4 w-96 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl flex flex-col transition-all duration-300" style="height: 500px; transform: translateY(450px);" aria-label="Chat assistant">
+        <div id="chatHeader" class="p-4 bg-gray-700 rounded-t-lg flex justify-between items-center cursor-pointer">
+            <div class="flex items-center">
+                <i class="fas fa-robot text-blue-400 mr-2"></i>
+                <h3 class="font-semibold text-gray-200">Vibration Analysis Assistant</h3>
+            </div>
+            <div>
+                <button title="Toggle Chat" id="toggleChat" class="text-gray-400 hover:text-gray-200 p-1 rounded-full hover:bg-gray-600 transition-colors" aria-label="Toggle chat visibility">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
+            </div>
+        </div>
+        <div id="chatBody" class="flex-1 overflow-y-auto p-4" style="height: 380px;">
+            <div id="chatMessages" class="flex flex-col space-y-4">
+                <div class="chat-message message-assistant">
+                    <div class="message-content">Hello! I'm your vibration analysis assistant. How can I help you analyze your data today?</div>
+                    <div class="message-time">AI Assistant</div>
+                </div>
+            </div>
+        </div>
+        <div id="chatInput" class="p-3 border-t border-gray-700">
+            <div class="flex">
+                <input type="text" id="userMessage" placeholder="Ask about your vibration data..." class="flex-1 bg-gray-700 border border-gray-600 rounded-l px-3 py-2 text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <button title="Send Message" id="sendMessage" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-r">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">Connected to current session</div>
         </div>
     </div>
 
     <!-- Include external JavaScript -->
     <script src="/js/vibration-app.js"></script>
+    <script src="/js/vibration-chat.js"></script>
+    <script src="/js/vibration-report.js"></script>
 </body>
 </html>

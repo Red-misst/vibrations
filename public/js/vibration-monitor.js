@@ -316,6 +316,75 @@ class VibrationMonitor {
         }
     }
 
+    // Update the updateSessionsTable method to dispatch an event when sessions are updated
+    updateSessionsTable(sessions) {
+        const tbody = document.getElementById('sessions-table');
+        tbody.innerHTML = '';
+        
+        sessions.forEach(session => {
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-700';
+            
+            const startTime = new Date(session.startTime);
+            const endTime = session.endTime ? new Date(session.endTime) : null;
+            const duration = endTime ? 
+                Math.floor((endTime - startTime) / 1000) : 
+                (session.isActive ? Math.floor((new Date() - startTime) / 1000) : 0);
+            
+            const durationStr = `${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')}`;
+            
+            row.innerHTML = `
+                <td class="p-2">${session.name}</td>
+                <td class="p-2">${startTime.toLocaleString()}</td>
+                <td class="p-2">${durationStr}</td>
+                <td class="p-2">
+                    <span class="px-2 py-1 rounded text-xs ${session.isActive ? 'bg-green-600' : 'bg-gray-600'}">
+                        ${session.isActive ? 'Active' : 'Completed'}
+                    </span>
+                </td>
+                <td class="p-2 flex gap-1">
+                    <button 
+                        onclick="monitor.viewSession('${session._id}')" 
+                        class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs"
+                    >
+                        View Data
+                    </button>
+                    <button 
+                        onclick="monitor.exportSession('${session._id}', '${session.name}')" 
+                        class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs"
+                    >
+                        Export CSV
+                    </button>
+                    ${session.isActive ? 
+                      `<button 
+                        onclick="monitor.stopTest()" 
+                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                    >
+                        Stop
+                    </button>` : 
+                      `<button 
+                        onclick="monitor.deleteSession('${session._id}')" 
+                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                    >
+                        Delete
+                    </button>`}
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+        
+        // Dispatch event for the report generator to update its session list
+        const event = new CustomEvent('sessionsListUpdated', { 
+            detail: { sessions: sessions } 
+        });
+        document.dispatchEvent(event);
+        
+        // Also update the report generator's session dropdown directly if the function exists
+        if (typeof window.updateReportSessions === 'function') {
+            window.updateReportSessions(sessions);
+        }
+    }
+
     onTestStarted(data) {
         this.currentSession = data.sessionId;
         this.sessionStartTime = new Date();
@@ -334,6 +403,15 @@ class VibrationMonitor {
         this.updateChart();
         
         this.loadSessions();
+        
+        // Dispatch event for chat interface to update its session
+        const event = new CustomEvent('sessionChanged', { 
+            detail: { 
+                sessionId: data.sessionId,
+                sessionName: data.sessionName 
+            } 
+        });
+        document.dispatchEvent(event);
     }
 
     onTestStopped(data) {
@@ -452,10 +530,34 @@ class VibrationMonitor {
                     >
                         Export CSV
                     </button>
+                    ${session.isActive ? 
+                      `<button 
+                        onclick="monitor.stopTest()" 
+                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                    >
+                        Stop
+                    </button>` : 
+                      `<button 
+                        onclick="monitor.deleteSession('${session._id}')" 
+                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                    >
+                        Delete
+                    </button>`}
                 </td>
             `;
             tbody.appendChild(row);
         });
+        
+        // Dispatch event for the report generator to update its session list
+        const event = new CustomEvent('sessionsListUpdated', { 
+            detail: { sessions: sessions } 
+        });
+        document.dispatchEvent(event);
+        
+        // Also update the report generator's session dropdown directly if the function exists
+        if (typeof window.updateReportSessions === 'function') {
+            window.updateReportSessions(sessions);
+        }
     }
 
     viewSession(sessionId) {
