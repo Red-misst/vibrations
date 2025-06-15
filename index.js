@@ -529,12 +529,15 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
       fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
       naturalFrequency = fftResult.dominantFreq;
     }
-    
-    // Calculate natural frequency characteristics
+      // Calculate natural frequency characteristics
     const naturalPeriod = naturalFrequency > 0 ? 1 / naturalFrequency : 0;
     
     // Update to use the actual test mass for stiffness calculation
     const stiffness = testMass * Math.pow(2 * Math.PI * naturalFrequency, 2); // N/m
+    
+    // Calculate time domain characteristics
+    const peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
+    const rms = Math.sqrt(zAxisRawData.reduce((sum, val) => sum + val * val, 0) / zAxisRawData.length);
     
     // Calculate force from acceleration and mass (F = ma)
     const peakForce = peakAmplitude * testMass; // Force in Newtons
@@ -544,10 +547,6 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     if (fftResult) {
       qFactor = calculateQFactor(fftResult.magnitudes, fftResult.frequencies, naturalFrequency);
     }
-    
-    // Calculate time domain characteristics
-    const peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
-    const rms = Math.sqrt(zAxisRawData.reduce((sum, val) => sum + val * val, 0) / zAxisRawData.length);
     const crestFactor = peakAmplitude / (rms > 0 ? rms : 1);
     
     // Calculate frequency spectrum characteristics

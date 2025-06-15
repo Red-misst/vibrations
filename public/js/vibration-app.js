@@ -198,9 +198,8 @@ function initializeCharts() {
         window.frequencyTimeChart = new Chart(frequencyTimeCtx, {
             type: 'line',
             data: {
-                labels: [],
-                datasets: [{
-                    label: 'Frequency (Hz)',
+                labels: [],                datasets: [{
+                    label: 'Dynamic Frequency (Hz)',
                     data: [],
                     borderColor: 'rgb(59, 130, 246)',
                     backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -541,9 +540,47 @@ function handleSessionData(data) {
                             const windowData = data.data.slice(i, i + windowSize);
                             const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
                                                      windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
-                                                     
-                            // Use a simple frequency estimation for the window
-                            const freq = data.frequencyData.naturalFrequency || 0;
+                                                       // Calculate frequency for this window using the fftUtils approach
+                            // Extract just the deltaZ values for frequency calculation
+                            const windowValues = windowData.map(point => point.deltaZ);
+                            
+                            // Estimate sampling frequency based on timestamps
+                            let samplingFreq = 100; // Default value if we can't calculate
+                            if (windowData.length > 1) {
+                                const firstTime = new Date(parseInt(windowData[0].timestamp) || windowData[0].receivedAt).getTime();
+                                const lastTime = new Date(parseInt(windowData[windowData.length-1].timestamp) || windowData[windowData.length-1].receivedAt).getTime();
+                                const duration = (lastTime - firstTime) / 1000; // in seconds
+                                if (duration > 0) {
+                                    samplingFreq = windowData.length / duration;
+                                }
+                            }
+                            
+                            // Use zero-crossing approach for simple frequency estimation
+                            let crossings = 0;
+                            let lastDirection = 0;
+                            
+                            for (let j = 1; j < windowValues.length; j++) {
+                                const diff = windowValues[j] - windowValues[j-1];
+                                if (diff !== 0) {
+                                    const direction = diff > 0 ? 1 : -1;
+                                    if (lastDirection !== 0 && direction !== lastDirection) {
+                                        crossings++;
+                                    }
+                                    lastDirection = direction;
+                                }
+                            }
+                            
+                            // Calculate frequency from zero crossings
+                            let freq = 0;
+                            if (crossings > 0) {
+                                // Each full oscillation has 2 crossings
+                                const oscillations = crossings / 2;
+                                const duration = windowValues.length / samplingFreq;
+                                freq = oscillations / duration;
+                            } else {
+                                // Fallback to the natural frequency if no crossings detected
+                                freq = data.frequencyData.naturalFrequency || 0;
+                            }
                             
                             timestamps.push(avgTime);
                             frequencies.push(freq);
@@ -705,14 +742,73 @@ function updateVibrationData(data) {
             deltaZChart.data.datasets[0].data.shift();
         }        rawZChart.update('none');
         deltaZChart.update('none');
-        
-        // Update frequency and amplitude time series if frequency data is available and charts exist
-        if (data.frequency && !viewingHistoricalSession && 
+          // Update frequency and amplitude time series with dynamic frequency calculation
+        if (!viewingHistoricalSession && 
             window.frequencyTimeChart && window.amplitudeTimeChart) {
             
-            // Add data to frequency time chart
+            // Calculate frequency from recent data points instead of using a fixed value
+            // This provides a more dynamic view of frequency changes
+            
+            // Store the most recent data points for frequency calculation
+            if (!window.recentDataPoints) {
+                window.recentDataPoints = [];
+            }
+            
+            // Add current data point to recent points array
+            window.recentDataPoints.push({
+                deltaZ: data.deltaZ || 0,
+                timestamp: Date.now()
+            });
+            
+            // Keep only last 10 data points for frequency calculation
+            if (window.recentDataPoints.length > 10) {
+                window.recentDataPoints.shift();
+            }
+            
+            // Calculate frequency from recent data points
+            let calculatedFreq = 0;
+            
+            if (window.recentDataPoints.length >= 3) {
+                // Extract deltaZ values
+                const values = window.recentDataPoints.map(p => p.deltaZ);
+                
+                // Calculate sampling frequency
+                const firstTime = window.recentDataPoints[0].timestamp;
+                const lastTime = window.recentDataPoints[window.recentDataPoints.length-1].timestamp;
+                const duration = (lastTime - firstTime) / 1000; // in seconds
+                const samplingFreq = duration > 0 ? window.recentDataPoints.length / duration : 100;
+                
+                // Count zero-crossings for frequency estimation
+                let crossings = 0;
+                let lastDirection = 0;
+                
+                for (let i = 1; i < values.length; i++) {
+                    const diff = values[i] - values[i-1];
+                    if (diff !== 0) {
+                        const direction = diff > 0 ? 1 : -1;
+                        if (lastDirection !== 0 && direction !== lastDirection) {
+                            crossings++;
+                        }
+                        lastDirection = direction;
+                    }
+                }
+                
+                // Calculate frequency from zero crossings
+                if (crossings > 0) {
+                    // Each full oscillation has 2 crossings
+                    const oscillations = crossings / 2;
+                    calculatedFreq = oscillations / (duration || 0.1);
+                } else {
+                    // If no crossings, use the passed frequency or default to 0
+                    calculatedFreq = data.frequency || 0;
+                }
+            } else {
+                calculatedFreq = data.frequency || 0;
+            }
+            
+            // Add data to frequency time chart with our calculated frequency
             window.frequencyTimeChart.data.labels.push(timestamp);
-            window.frequencyTimeChart.data.datasets[0].data.push(data.frequency || 0);
+            window.frequencyTimeChart.data.datasets[0].data.push(calculatedFreq);
             
             // Add data to amplitude time chart
             window.amplitudeTimeChart.data.labels.push(timestamp);
@@ -856,49 +952,44 @@ function updateResonanceData(data) {
             window.frequencyTimeChart.data.datasets[0].data.shift();
         }
         
-        window.frequencyTimeChart.update('none');
+        window.frequencyTimeChart.update();
     }
     
-    // Update amplitude time series chart if it exists and we're not viewing historical data
-    if (!viewingHistoricalSession && window.amplitudeTimeChart && data.amplitude) {
-        const timestamp = new Date().toLocaleTimeString();
-        window.amplitudeTimeChart.data.labels.push(timestamp);
-        window.amplitudeTimeChart.data.datasets[0].data.push(data.amplitude);
-        
-        // Keep only the last 50 points
-        if (window.amplitudeTimeChart.data.labels.length > 50) {
-            window.amplitudeTimeChart.data.labels.shift();
-            window.amplitudeTimeChart.data.datasets[0].data.shift();
+    // Also update the frequency analysis results table
+    if (typeof updateFrequencyAnalysisTable === 'function') {
+        updateFrequencyAnalysisTable(data);
+    }
+}
+
+// New function to update the frequency analysis results table
+function updateFrequencyAnalysisTable(data) {
+    debug("Updating frequency analysis table", data);
+    
+    const tableBody = document.getElementById('frequencyAnalysisTableBody');
+    tableBody.innerHTML = ''; // Clear existing rows
+    
+    // Create a row for each frequency data point
+    if (data.frequencies && data.magnitudes) {
+        for (let i = 0; i < data.frequencies.length; i++) {
+            const freq = data.frequencies[i];
+            const mag = data.magnitudes[i];
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="px-4 py-3">${freq.toFixed(2)} Hz</td>
+                <td class="px-4 py-3">${mag.toFixed(3)}</td>
+            `;
+            tableBody.appendChild(row);
         }
-        
-        window.amplitudeTimeChart.update('none');
-    }
-    
-    // Update engineering data for ANY vibration analysis
-    const engineeringDataEl = document.getElementById('engineeringData');
-    engineeringDataEl.innerHTML = '';
-    
-    // Create data items for each frequency calculation
-    const calculations = [
-        { title: 'Natural Frequency', value: `${data.frequency?.toFixed(2) || 0} Hz` },
-        { title: 'Natural Period', value: `${data.naturalPeriod?.toFixed(4) || 0} s` },
-        { title: 'Q Factor', value: `${data.qFactor?.toFixed(2) || 0}` },
-        { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
-        { title: 'Stiffness (est.)', value: `${data.stiffness?.toFixed(2) || 0} N/m` },
-        { title: 'RMS Value', value: `${data.rms?.toFixed(4) || 0}` },
-        { title: 'Crest Factor', value: `${data.crestFactor?.toFixed(2) || 0}` },
-        { title: 'Peak Amplitude', value: `${data.amplitude?.toFixed(3) || 0} g` }
-    ];
-    
-    calculations.forEach(calc => {
-        const item = document.createElement('div');
-        item.className = 'engineering-data-item';
-        item.innerHTML = `
-            <div class="title">${calc.title}</div>
-            <div class="value">${calc.value}</div>
+    } else {
+        // Fallback: show estimated frequency and magnitude
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="px-4 py-3">N/A</td>
+            <td class="px-4 py-3">N/A</td>
         `;
-        engineeringDataEl.appendChild(item);
-    });
+        tableBody.appendChild(row);
+    }
 }
 
 function onTestStarted(data) {

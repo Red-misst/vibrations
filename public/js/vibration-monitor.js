@@ -632,6 +632,8 @@ class VibrationMonitor {
             // Update frequency data if available
             if (data.frequencyData) {
                 this.updateFrequencyDisplay(data.frequencyData);
+                // Also update the frequency analysis results table
+                updateFrequencyAnalysisTable(data);
             }
         } else {
             document.getElementById('view-session-end').textContent = 'N/A';
@@ -803,23 +805,111 @@ function updateResonanceData(data) {
     const calculations = [
         { title: 'Natural Frequency', value: `${data.frequency?.toFixed(2) || 0} Hz` },
         { title: 'Natural Period', value: `${data.naturalPeriod?.toFixed(4) || 0} s` },
-        { title: 'Q Factor', value: `${data.qFactor?.toFixed(2) || 0}` },
-        { title: 'Bandwidth', value: `${data.bandwidth?.toFixed(2) || 0} Hz` },
-        { title: 'Stiffness (est.)', value: `${data.stiffness?.toFixed(2) || 0} N/m` },
-        { title: 'RMS Value', value: `${data.rms?.toFixed(4) || 0}` },
-        { title: 'Crest Factor', value: `${data.crestFactor?.toFixed(2) || 0}` },
-        { title: 'Peak Amplitude', value: `${data.amplitude?.toFixed(3) || 0} g` },
-        { title: 'Test Mass', value: `${data.testMass?.toFixed(2) || 1.00} kg` },
-        { title: 'Peak Force', value: `${data.peakForce?.toFixed(2) || 0} N` }
     ];
     
-    calculations.forEach(calc => {
-        const item = document.createElement('div');
-        item.className = 'flex justify-between text-sm text-gray-300 py-1';
-        item.innerHTML = `
-            <span>${calc.title}</span>
-            <span class="font-mono">${calc.value}</span>
+    // Also update the frequency analysis results table
+    updateFrequencyAnalysisTable(data);
+}
+
+/**
+ * Update the Frequency Analysis Results table with calculated values
+ * @param {Object} data - The session data containing frequency analysis results
+ */
+function updateFrequencyAnalysisTable(data) {
+    const table = document.getElementById('frequencyResultsTable');
+    if (!table) return;
+    
+    // Clear existing table rows
+    table.innerHTML = '';
+    
+    // Define the parameters to display in the table
+    const parameters = [
+        { 
+            name: 'Natural Frequency', 
+            value: data.naturalFrequency || data.frequency || 0, 
+            unit: 'Hz',
+            description: 'Primary resonance frequency of the system',
+            formatter: (val) => val.toFixed(2)
+        },
+        { 
+            name: 'Peak Amplitude', 
+            value: data.peakAmplitude || 0, 
+            unit: 'g',
+            description: 'Maximum vibration amplitude detected',
+            formatter: (val) => val.toFixed(3)
+        },
+        { 
+            name: 'Quality Factor (Q)', 
+            value: data.mechanicalProperties?.qFactor || 0, 
+            unit: '',
+            description: 'Damping characteristics of the system',
+            formatter: (val) => val.toFixed(2)
+        },
+        { 
+            name: 'Natural Period', 
+            value: data.mechanicalProperties?.naturalPeriod || 0, 
+            unit: 's',
+            description: 'Time period of one oscillation cycle',
+            formatter: (val) => val.toFixed(4)
+        },
+        { 
+            name: 'Stiffness', 
+            value: data.mechanicalProperties?.stiffness || 0, 
+            unit: 'N/m',
+            description: 'Spring constant of the system',
+            formatter: (val) => val.toFixed(1)
+        },
+        { 
+            name: 'Damping Coefficient', 
+            value: data.mechanicalProperties?.dampingCoefficient || 0, 
+            unit: 'Ns/m',
+            description: 'Energy dissipation rate in the system',
+            formatter: (val) => val.toFixed(3)
+        },
+        { 
+            name: 'RMS Value', 
+            value: data.mechanicalProperties?.rms || 0, 
+            unit: 'g',
+            description: 'Root Mean Square of vibration amplitude',
+            formatter: (val) => val.toFixed(3)
+        },
+        { 
+            name: 'Crest Factor', 
+            value: data.mechanicalProperties?.crestFactor || 0, 
+            unit: '',
+            description: 'Ratio of peak to RMS value',
+            formatter: (val) => val.toFixed(2)
+        },
+        { 
+            name: 'Bandwidth', 
+            value: data.mechanicalProperties?.bandwidth || 0, 
+            unit: 'Hz',
+            description: 'Frequency range of significant vibration',
+            formatter: (val) => val.toFixed(2)
+        },
+        { 
+            name: 'Resonance Magnification', 
+            value: data.mechanicalProperties?.resonanceMagnification || 0, 
+            unit: 'x',
+            description: 'Amplification factor at resonance',
+            formatter: (val) => val.toFixed(1)
+        }
+    ];
+    
+    // Add rows to the table
+    parameters.forEach(param => {
+        const row = document.createElement('tr');
+        row.className = 'bg-gray-800 hover:bg-gray-700 transition-colors';
+        
+        const formattedValue = param.formatter ? param.formatter(param.value) : param.value;
+        
+        row.innerHTML = `
+            <td class="px-4 py-3 text-sm font-medium text-gray-200">${param.name}</td>
+            <td class="px-4 py-3 text-sm text-gray-300">${formattedValue}</td>
+            <td class="px-4 py-3 text-sm text-gray-300">${param.unit}</td>
+            <td class="px-4 py-3 text-sm text-gray-400">${param.description}</td>
         `;
-        engineeringDataEl.appendChild(item);
+        
+        table.appendChild(row);
     });
 }
