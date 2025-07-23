@@ -5,7 +5,8 @@
 
 // Global variables
 let socket;
-let rawZChart, deltaZChart, frequencyChart;
+let rawZChart, deltaZChart, frequencyChart, amplitudeFrequencyChart;
+
 let currentSession = null;
 let isRecording = false;
 let dataPointCount = 0;
@@ -14,6 +15,10 @@ let viewingHistoricalSession = false;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;
 const debugMode = true;
+
+// Store raw Z points for FFT
+let rawZPoints = [];
+const maxRawZPoints = 256; // FFT window size
 
 // Helper function for debugging
 function debug(message, data) {
@@ -76,7 +81,7 @@ function initializeCharts() {
             }
         }
     });
-    
+
     // Delta Z Chart
     const deltaZCtx = document.getElementById('deltaZChart').getContext('2d');
     deltaZChart = new Chart(deltaZCtx, {
@@ -125,7 +130,7 @@ function initializeCharts() {
             }
         }
     });
-    
+
     // Frequency Chart
     const frequencyCtx = document.getElementById('frequencyChart').getContext('2d');
     frequencyChart = new Chart(frequencyCtx, {
@@ -192,7 +197,63 @@ function initializeCharts() {
                 }
             }
         }
-    });    // Frequency Time Series Chart
+    });
+
+    // Amplitude vs Frequency Chart (now line graph)
+    const amplitudeFrequencyCtx = document.getElementById('amplitudeFrequencyChart').getContext('2d');
+    amplitudeFrequencyChart = new Chart(amplitudeFrequencyCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Amplitude',
+                data: [],
+                borderColor: 'rgb(255, 165, 0)',
+                backgroundColor: 'rgba(255, 165, 0, 0.1)',
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Frequency (Hz)',
+                        color: 'rgb(156, 163, 175)'
+                    },
+                    ticks: {
+                        color: 'rgb(156, 163, 175)'
+                    },
+                    grid: {
+                        color: 'rgba(75, 85, 99, 0.2)'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Amplitude',
+                        color: 'rgb(156, 163, 175)'
+                    },
+                    ticks: {
+                        color: 'rgb(156, 163, 175)'
+                    },
+                    grid: {
+                        color: 'rgba(75, 85, 99, 0.2)'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
     const frequencyTimeCtx = document.getElementById('frequencyTimeChart')?.getContext('2d');
     if (frequencyTimeCtx) {
         window.frequencyTimeChart = new Chart(frequencyTimeCtx, {
@@ -450,32 +511,29 @@ function handleSessionData(data) {
         // Set the data point count
         dataPointCount = data.data.length;
         document.getElementById('dataPointCount').textContent = dataPointCount;
-        
+
         // Process the time series data
         const timestamps = [];
         const rawZValues = [];
         const deltaZValues = [];
-        
         data.data.forEach(point => {
-            // Get time from timestamp or use receivedAt
             let timeLabel;
             if (point.timestamp) {
                 timeLabel = new Date(parseInt(point.timestamp)).toLocaleTimeString();
             } else {
                 timeLabel = new Date(point.receivedAt).toLocaleTimeString();
             }
-            
             timestamps.push(timeLabel);
             rawZValues.push(point.rawZ);
             deltaZValues.push(point.deltaZ);
         });
-        
+
         // Update the charts
         rawZChart.data.labels = timestamps;
         rawZChart.data.datasets[0].data = rawZValues;
         deltaZChart.data.labels = timestamps;
         deltaZChart.data.datasets[0].data = deltaZValues;
-        
+
         // Take a sample of data points for display if there are too many
         if (timestamps.length > 50) {
             const skipFactor = Math.ceil(timestamps.length / 50);
@@ -484,47 +542,74 @@ function handleSessionData(data) {
             deltaZChart.data.labels = timestamps.filter((_, i) => i % skipFactor === 0);
             deltaZChart.data.datasets[0].data = deltaZValues.filter((_, i) => i % skipFactor === 0);
         }
-        
-        // Update charts
+
         rawZChart.update();
         deltaZChart.update();
-        
+
+        // --- FFT and spectrum calculation for historical data ---
+        let histRawZ = rawZValues.filter(v => typeof v === 'number');
+        let dominantFreq = 0;
+        let amplitudeSpectrum = [];
+        let freqBins = [];
+        if (histRawZ.length >= 16) {
+            const N = histRawZ.length > 256 ? 256 : histRawZ.length;
+            const startIdx = histRawZ.length - N;
+            const window = histRawZ.slice(startIdx);
+            const samplingFreq = 100; // Hz, adjust if known
+            amplitudeSpectrum = [];
+            freqBins = [];
+            for (let k = 0; k < N / 2; k++) {
+                let re = 0, im = 0;
+                for (let n = 0; n < N; n++) {
+                    const angle = (2 * Math.PI * k * n) / N;
+                    re += window[n] * Math.cos(angle);
+                    im -= window[n] * Math.sin(angle);
+                }
+                const amplitude = Math.sqrt(re * re + im * im) / N;
+                amplitudeSpectrum.push(amplitude);
+                freqBins.push((k * samplingFreq / N).toFixed(2));
+            }
+            // Find dominant frequency
+            let maxAmp = 0;
+            let maxIdx = 0;
+            for (let i = 1; i < amplitudeSpectrum.length; i++) {
+                if (amplitudeSpectrum[i] > maxAmp) {
+                    maxAmp = amplitudeSpectrum[i];
+                    maxIdx = i;
+                }
+            }
+            dominantFreq = parseFloat(freqBins[maxIdx]);
+        }
+
+        // Update Amplitude vs Frequency chart and frequency value
+        if (amplitudeSpectrum.length > 0 && freqBins.length > 0) {
+            amplitudeFrequencyChart.data.labels = freqBins;
+            amplitudeFrequencyChart.data.datasets[0].data = amplitudeSpectrum;
+            amplitudeFrequencyChart.update();
+        }
+        document.getElementById('frequencyValue').textContent = dominantFreq.toFixed(2);
+
         // Update the metrics with frequency data
         if (data.frequencyData) {
             debug("Processing frequency data", data.frequencyData);
-            
-            // Update frequency metric
-            if (data.frequencyData.naturalFrequency) {
-                document.getElementById('frequencyValue').textContent = data.frequencyData.naturalFrequency.toFixed(2);
-            }
-            
-            // Update Q Factor metric
             if (data.frequencyData.qFactor) {
                 document.getElementById('qFactorValue').textContent = data.frequencyData.qFactor.toFixed(1);
             }
-            
-            // Update peak amplitude metric
             if (data.frequencyData.peakAmplitude) {
                 document.getElementById('amplitudeValue').textContent = data.frequencyData.peakAmplitude.toFixed(3);
             }
-            
-            // Update current Z value with last data point
             const lastDeltaZ = data.data[data.data.length - 1].deltaZ;
             document.getElementById('currentZValue').textContent = lastDeltaZ.toFixed(3);
-              // Generate frequency domain data for the natural frequency chart
             generateFrequencyResponseData(data.frequencyData);
-            
-            // Process frequency and amplitude time series if available
+
+            // ...existing code for frequencyTimeChart and amplitudeTimeChart...
             if (window.frequencyTimeChart && window.amplitudeTimeChart) {
                 debug("Updating frequency and amplitude time series charts");
-                
-                // Check if we have frequency time series from the TestSession data
                 if (data.frequencyData.frequencyTimeSeries && data.frequencyData.frequencyTimeSeries.length > 0) {
                     const freqTimeLabels = data.frequencyData.frequencyTimeSeries.map(point => {
                         return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
                     });
                     const freqValues = data.frequencyData.frequencyTimeSeries.map(point => point.frequency);
-                    
                     window.frequencyTimeChart.data.labels = freqTimeLabels;
                     window.frequencyTimeChart.data.datasets[0].data = freqValues;
                     window.frequencyTimeChart.update();
@@ -532,33 +617,23 @@ function handleSessionData(data) {
                     // Generate synthetic frequency time series from the historical data
                     const timestamps = [];
                     const frequencies = [];
-                    
-                    // Use a sliding window approach to calculate frequency over time
                     const windowSize = Math.min(10, Math.floor(data.data.length / 4));
-                    if (windowSize >= 3) { // Need at least 3 points for meaningful frequency calculation
+                    if (windowSize >= 3) {
                         for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
                             const windowData = data.data.slice(i, i + windowSize);
-                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
-                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
-                                                       // Calculate frequency for this window using the fftUtils approach
-                            // Extract just the deltaZ values for frequency calculation
+                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
                             const windowValues = windowData.map(point => point.deltaZ);
-                            
-                            // Estimate sampling frequency based on timestamps
-                            let samplingFreq = 100; // Default value if we can't calculate
+                            let samplingFreq = 100;
                             if (windowData.length > 1) {
                                 const firstTime = new Date(parseInt(windowData[0].timestamp) || windowData[0].receivedAt).getTime();
                                 const lastTime = new Date(parseInt(windowData[windowData.length-1].timestamp) || windowData[windowData.length-1].receivedAt).getTime();
-                                const duration = (lastTime - firstTime) / 1000; // in seconds
+                                const duration = (lastTime - firstTime) / 1000;
                                 if (duration > 0) {
                                     samplingFreq = windowData.length / duration;
                                 }
                             }
-                            
-                            // Use zero-crossing approach for simple frequency estimation
                             let crossings = 0;
                             let lastDirection = 0;
-                            
                             for (let j = 1; j < windowValues.length; j++) {
                                 const diff = windowValues[j] - windowValues[j-1];
                                 if (diff !== 0) {
@@ -569,59 +644,42 @@ function handleSessionData(data) {
                                     lastDirection = direction;
                                 }
                             }
-                            
-                            // Calculate frequency from zero crossings
                             let freq = 0;
                             if (crossings > 0) {
-                                // Each full oscillation has 2 crossings
                                 const oscillations = crossings / 2;
                                 const duration = windowValues.length / samplingFreq;
                                 freq = oscillations / duration;
                             } else {
-                                // Fallback to the natural frequency if no crossings detected
                                 freq = data.frequencyData.naturalFrequency || 0;
                             }
-                            
                             timestamps.push(avgTime);
                             frequencies.push(freq);
                         }
-                        
                         window.frequencyTimeChart.data.labels = timestamps;
                         window.frequencyTimeChart.data.datasets[0].data = frequencies;
                         window.frequencyTimeChart.update();
                     }
                 }
-                
-                // Check if we have amplitude time series from the TestSession data
                 if (data.frequencyData.amplitudeTimeSeries && data.frequencyData.amplitudeTimeSeries.length > 0) {
                     const ampTimeLabels = data.frequencyData.amplitudeTimeSeries.map(point => {
                         return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
                     });
                     const ampValues = data.frequencyData.amplitudeTimeSeries.map(point => point.amplitude);
-                    
                     window.amplitudeTimeChart.data.labels = ampTimeLabels;
                     window.amplitudeTimeChart.data.datasets[0].data = ampValues;
                     window.amplitudeTimeChart.update();
                 } else {
-                    // Generate synthetic amplitude time series from the raw data
                     const timeLabels = [];
                     const amplitudes = [];
-                    
-                    // Use a sliding window approach to calculate amplitude over time
                     const windowSize = Math.min(10, Math.floor(data.data.length / 4));
                     if (windowSize >= 3) {
                         for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
                             const windowData = data.data.slice(i, i + windowSize);
-                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
-                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
-                                                     
-                            // Calculate peak amplitude in this window
+                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
                             const peakAmplitude = Math.max(...windowData.map(d => Math.abs(d.deltaZ)));
-                            
                             timeLabels.push(avgTime);
                             amplitudes.push(peakAmplitude);
                         }
-                        
                         window.amplitudeTimeChart.data.labels = timeLabels;
                         window.amplitudeTimeChart.data.datasets[0].data = amplitudes;
                         window.amplitudeTimeChart.update();
@@ -629,7 +687,6 @@ function handleSessionData(data) {
                 }
             }
         }
-        
         showNotification("Historical session data loaded successfully", "success");
     } else {
         showNotification("No data available for this session", "error");
@@ -699,10 +756,50 @@ function updateVibrationData(data) {
     dataPointCount++;
     document.getElementById('dataPointCount').textContent = dataPointCount;
 
-    // Update real-time metrics for ANY vibration magnitude
-    if (data.frequency !== undefined) {
-        document.getElementById('frequencyValue').textContent = data.frequency.toFixed(2);
+    // Store raw Z points for FFT
+    if (typeof data.rawZ === 'number') {
+        rawZPoints.push(data.rawZ);
+        if (rawZPoints.length > maxRawZPoints) rawZPoints.shift();
     }
+
+    // Recalculate frequency using FFT on rawZPoints
+    let dominantFreq = 0;
+    let amplitudeSpectrum = [];
+    let freqBins = [];
+    if (rawZPoints.length >= 16) {
+        // FFT implementation (simple, real-valued)
+        // Use a basic DFT for small N
+        const N = rawZPoints.length;
+        const samplingFreq = 100; // Hz, adjust if known
+        amplitudeSpectrum = [];
+        freqBins = [];
+        for (let k = 0; k < N / 2; k++) {
+            let re = 0, im = 0;
+            for (let n = 0; n < N; n++) {
+                const angle = (2 * Math.PI * k * n) / N;
+                re += rawZPoints[n] * Math.cos(angle);
+                im -= rawZPoints[n] * Math.sin(angle);
+            }
+            const amplitude = Math.sqrt(re * re + im * im) / N;
+            amplitudeSpectrum.push(amplitude);
+            freqBins.push((k * samplingFreq / N).toFixed(2));
+        }
+        // Find dominant frequency
+        let maxAmp = 0;
+        let maxIdx = 0;
+        for (let i = 1; i < amplitudeSpectrum.length; i++) {
+            if (amplitudeSpectrum[i] > maxAmp) {
+                maxAmp = amplitudeSpectrum[i];
+                maxIdx = i;
+            }
+        }
+        dominantFreq = parseFloat(freqBins[maxIdx]);
+    }
+
+    // Update frequency value in UI
+    document.getElementById('frequencyValue').textContent = dominantFreq.toFixed(2);
+
+    // Update other metrics
     if (data.qFactor !== undefined) {
         document.getElementById('qFactorValue').textContent = data.qFactor.toFixed(1);
     }
@@ -716,20 +813,18 @@ function updateVibrationData(data) {
     // Format time for display on chart
     let timestamp;
     if (data.timestamp) {
-        // Convert timestamp to date if it's a number
         const time = typeof data.timestamp === 'number' ? new Date(data.timestamp) : new Date();
         timestamp = time.toLocaleTimeString();
     } else {
         timestamp = new Date().toLocaleTimeString();
     }
-    
-    // Safely update charts with null checks
+
     try {
-        // Add data to raw Z-axis chart - NO THRESHOLD FILTERING
+        // Add data to raw Z-axis chart
         rawZChart.data.labels.push(timestamp);
         rawZChart.data.datasets[0].data.push(data.rawZ || 0);
 
-        // Add data to delta Z-axis chart - NO THRESHOLD FILTERING
+        // Add data to delta Z-axis chart
         deltaZChart.data.labels.push(timestamp);
         deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
 
@@ -740,92 +835,35 @@ function updateVibrationData(data) {
             rawZChart.data.datasets[0].data.shift();
             deltaZChart.data.labels.shift();
             deltaZChart.data.datasets[0].data.shift();
-        }        rawZChart.update('none');
+        }
+        rawZChart.update('none');
         deltaZChart.update('none');
-          // Update frequency and amplitude time series with dynamic frequency calculation
-        if (!viewingHistoricalSession && 
-            window.frequencyTimeChart && window.amplitudeTimeChart) {
-            
-            // Calculate frequency from recent data points instead of using a fixed value
-            // This provides a more dynamic view of frequency changes
-            
-            // Store the most recent data points for frequency calculation
-            if (!window.recentDataPoints) {
-                window.recentDataPoints = [];
-            }
-            
-            // Add current data point to recent points array
-            window.recentDataPoints.push({
-                deltaZ: data.deltaZ || 0,
-                timestamp: Date.now()
-            });
-            
-            // Keep only last 10 data points for frequency calculation
-            if (window.recentDataPoints.length > 10) {
-                window.recentDataPoints.shift();
-            }
-            
-            // Calculate frequency from recent data points
-            let calculatedFreq = 0;
-            
-            if (window.recentDataPoints.length >= 3) {
-                // Extract deltaZ values
-                const values = window.recentDataPoints.map(p => p.deltaZ);
-                
-                // Calculate sampling frequency
-                const firstTime = window.recentDataPoints[0].timestamp;
-                const lastTime = window.recentDataPoints[window.recentDataPoints.length-1].timestamp;
-                const duration = (lastTime - firstTime) / 1000; // in seconds
-                const samplingFreq = duration > 0 ? window.recentDataPoints.length / duration : 100;
-                
-                // Count zero-crossings for frequency estimation
-                let crossings = 0;
-                let lastDirection = 0;
-                
-                for (let i = 1; i < values.length; i++) {
-                    const diff = values[i] - values[i-1];
-                    if (diff !== 0) {
-                        const direction = diff > 0 ? 1 : -1;
-                        if (lastDirection !== 0 && direction !== lastDirection) {
-                            crossings++;
-                        }
-                        lastDirection = direction;
-                    }
-                }
-                
-                // Calculate frequency from zero crossings
-                if (crossings > 0) {
-                    // Each full oscillation has 2 crossings
-                    const oscillations = crossings / 2;
-                    calculatedFreq = oscillations / (duration || 0.1);
-                } else {
-                    // If no crossings, use the passed frequency or default to 0
-                    calculatedFreq = data.frequency || 0;
-                }
-            } else {
-                calculatedFreq = data.frequency || 0;
-            }
-            
-            // Add data to frequency time chart with our calculated frequency
+
+        // Update Amplitude vs Frequency chart
+        if (amplitudeSpectrum.length > 0 && freqBins.length > 0) {
+            amplitudeFrequencyChart.data.labels = freqBins;
+            amplitudeFrequencyChart.data.datasets[0].data = amplitudeSpectrum;
+            amplitudeFrequencyChart.update('none');
+        }
+
+        // ...existing code for frequencyTimeChart and amplitudeTimeChart...
+        if (!viewingHistoricalSession && window.frequencyTimeChart && window.amplitudeTimeChart) {
+            if (!window.recentDataPoints) window.recentDataPoints = [];
+            window.recentDataPoints.push({ deltaZ: data.deltaZ || 0, timestamp: Date.now() });
+            if (window.recentDataPoints.length > 10) window.recentDataPoints.shift();
+            let calculatedFreq = dominantFreq;
             window.frequencyTimeChart.data.labels.push(timestamp);
             window.frequencyTimeChart.data.datasets[0].data.push(calculatedFreq);
-            
-            // Add data to amplitude time chart
             window.amplitudeTimeChart.data.labels.push(timestamp);
             window.amplitudeTimeChart.data.datasets[0].data.push(Math.abs(data.deltaZ) || 0);
-            
-            // Keep only last 50 data points for time series charts
             if (window.frequencyTimeChart.data.labels.length > 50) {
                 window.frequencyTimeChart.data.labels.shift();
                 window.frequencyTimeChart.data.datasets[0].data.shift();
             }
-            
             if (window.amplitudeTimeChart.data.labels.length > 50) {
                 window.amplitudeTimeChart.data.labels.shift();
                 window.amplitudeTimeChart.data.datasets[0].data.shift();
             }
-            
-            // Update the charts with minimal performance impact
             window.frequencyTimeChart.update('none');
             window.amplitudeTimeChart.update('none');
         }

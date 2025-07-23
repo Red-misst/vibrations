@@ -139,7 +139,7 @@
         </div>
 
         <!-- Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <!-- Z-Axis Raw Data Chart -->
             <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
                 <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
@@ -165,6 +165,20 @@
                 </div>
                 <div class="mt-4 text-center text-sm text-gray-400">
                     Vertical vibration intensity changes
+                </div>
+            </div>
+
+            <!-- Amplitude vs Frequency Chart -->
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-200 mb-4 flex items-center">
+                    <i class="fas fa-chart-bar text-orange-400 mr-2"></i>
+                    Amplitude vs Frequency
+                </h3>
+                <div class="relative">
+                    <canvas id="amplitudeFrequencyChart" class="w-full h-64"></canvas>
+                </div>
+                <div class="mt-4 text-center text-sm text-gray-400">
+                    Frequency spectrum of Z-axis amplitude
                 </div>
             </div>
         </div>
