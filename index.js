@@ -320,7 +320,7 @@ wss.on('connection', (ws, req) => {
             };
             
             // Include FFT data for frequency visualization if available
-            if (updatedSession.zAxisData && updatedSession.zAxisData.length >= 1000) {
+            if (updatedSession.zAxisData && updatedSession.zAxisData.length >= 10) {
               const zAxisRawData = updatedSession.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
               const timestamps = updatedSession.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
               
