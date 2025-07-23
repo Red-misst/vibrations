@@ -356,94 +356,90 @@ wss.on('connection', (ws, req) => {
       }
     });
   } else {
-    // ESP8266 connection
-    console.log('ESP8266 connected');
+    
+
+    let deviceId = 'unknown';
     
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message);
         
-        if (data.type === 'device_connected') {
-          espClients.set(data.deviceId, ws);
-          console.log(`ESP8266 device connected: ${data.deviceId}`);
+        // Device identification
+        if (data.type === 'device_connected' && data.deviceId) {
+          deviceId = data.deviceId;
+          espClients.set(deviceId, ws);
+          console.log(`ESP8266 device connected: ${deviceId}`);
           
-          // Notify web clients of device connection
           broadcastToWebClients({
             type: 'device_status',
-            deviceId: data.deviceId,
+            deviceId,
             status: 'connected'
           });
           return;
         }
         
-        if (data.type === 'vibration_data' && currentSession) {
-          // Z-axis only data storage
-          const vibrationData = new VibrationData({
-            sessionId: currentSession._id,
-            deviceId: data.deviceId || 'unknown',
-            timestamp: new Date(data.timestamp || Date.now()),
-            deltaZ: data.deltaZ || 0,
-            rawZ: data.rawZ || 0,
-            magnitude: data.magnitude || data.deltaZ || 0,
-            receivedAt: new Date()
-          });
-
-          await vibrationData.save();
-
-          // Update session with latest Z-axis data for real-time analysis
-          if (!currentSession.zAxisData) currentSession.zAxisData = [];
+        // Vibration data processing (Z-axis only)
+        if (data.az && Array.isArray(data.az) && currentSession) {
+          const now = Date.now();
+          const sampleInterval = 1000 / 200; // 5ms for 200Hz
           
-          // Store both raw and delta values for comprehensive analysis
-          currentSession.zAxisData.push({
-            timestamp: data.timestamp,
-            deltaZ: data.deltaZ,
-            rawZ: data.rawZ,
-            receivedAt: new Date()
-          });
-          
-
-          // Perform real-time analysis on EVERY data point - no minimum threshold
-          if (currentSession.zAxisData.length >= 1) {
-            const frequencyData = await calculateNaturalFrequency(currentSession._id, true);
+          for (let i = 0; i < data.az.length; i++) {
+            const zValue = data.az[i];
+            const timestamp = new Date(now - (data.az.length - 1 - i) * sampleInterval);
             
-            // Broadcast enhanced Z-axis data to web clients with real-time analysis
-            broadcastToWebClients({
-              type: 'vibration_data',
+            // Create and save vibration data
+            const vibrationData = new VibrationData({
               sessionId: currentSession._id,
-              deviceId: data.deviceId,
-              timestamp: data.timestamp,
-              deltaZ: data.deltaZ,
-              rawZ: data.rawZ,
-              magnitude: data.magnitude,
-              receivedAt: new Date().toISOString(),
-              // Real-time frequency calculations for ANY vibration
-              frequency: frequencyData.frequency,
-              qFactor: frequencyData.qFactor,
-              amplitude: frequencyData.amplitude,
-              naturalPeriod: frequencyData.naturalPeriod,
-              bandwidth: frequencyData.bandwidth
+              deviceId,
+              timestamp,
+              deltaZ: zValue,
+              rawZ: zValue,
+              magnitude: Math.abs(zValue),
+              receivedAt: new Date()
             });
+
+            await vibrationData.save();
+
+            // Update session with Z-axis data
+            if (!currentSession.zAxisData) currentSession.zAxisData = [];
             
-            // Send frequency data update for every data point
-            broadcastToWebClients({
-              type: 'frequency_data',
-              sessionId: currentSession._id,
-              frequency: frequencyData.frequency,
-              qFactor: frequencyData.qFactor,
-              amplitude: frequencyData.amplitude,
-              naturalPeriod: frequencyData.naturalPeriod,
-              stiffness: frequencyData.stiffness,
-              rms: frequencyData.rms,
-              crestFactor: frequencyData.crestFactor,
-              bandwidth: frequencyData.bandwidth
+            currentSession.zAxisData.push({
+              timestamp: timestamp.getTime(),
+              deltaZ: zValue,
+              rawZ: zValue,
+              receivedAt: new Date()
             });
           }
+
+          // Perform real-time analysis after processing batch
+          const frequencyData = await calculateNaturalFrequency(currentSession._id, true);
+          
+          // Broadcast to web clients
+          broadcastToWebClients({
+            type: 'vibration_data_batch',
+            sessionId: currentSession._id,
+            deviceId,
+            points: data.az.map((zValue, i) => ({
+              timestamp: new Date(now - (data.az.length - 1 - i) * sampleInterval).toISOString(),
+              deltaZ: zValue,
+              rawZ: zValue,
+              magnitude: Math.abs(zValue),
+              receivedAt: new Date().toISOString()
+            })),
+            analysis: {
+              frequency: frequencyData.frequency,
+              qFactor: frequencyData.qFactor,
+              amplitude: frequencyData.amplitude,
+              naturalPeriod: frequencyData.naturalPeriod,
+              bandwidth: frequencyData.bandwidth
+            }
+          });
         }
       } catch (error) {
         console.error('Error processing ESP8266 data:', error);
       }
     });
-    
+
     ws.on('close', () => {
       // Find and remove device from espClients
       for (const [deviceId, client] of espClients.entries()) {
