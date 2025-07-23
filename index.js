@@ -401,10 +401,6 @@ wss.on('connection', (ws, req) => {
             receivedAt: new Date()
           });
           
-          // Keep only last 100 samples for real-time analysis
-          if (currentSession.zAxisData.length > 100) {
-            currentSession.zAxisData = currentSession.zAxisData.slice(-100);
-          }
 
           // Perform real-time analysis on EVERY data point - no minimum threshold
           if (currentSession.zAxisData.length >= 1) {
