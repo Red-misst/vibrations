@@ -677,27 +677,55 @@ app.get('/api/export/:sessionId', async (req, res) => {
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="vibration-data-${session._id}.csv"`);
-      
-      let csv = 'Timestamp,DeltaZ,RawZ,ReceivedAt\n';
-      session.zAxisData.forEach(data => {
-        csv += `${data.timestamp},${data.deltaZ},${data.rawZ},${data.receivedAt}\n`;
-      });
+
+      // --- FFT and spectrum calculation for historical data ---
+      const rawZValues = session.zAxisData.map(data => data.rawZ || 0);
+      let histRawZ = rawZValues.filter(v => typeof v === 'number');
+      let amplitudeSpectrum = [];
+      let freqBins = [];
+      if (histRawZ.length >= 16) {
+      const N = histRawZ.length > 256 ? 256 : histRawZ.length;
+      const startIdx = histRawZ.length - N;
+      const window = histRawZ.slice(startIdx);
+      const samplingFreq = 100; // Hz, adjust if known
+      amplitudeSpectrum = [];
+      freqBins = [];
+      for (let k = 0; k < N / 2; k++) {
+        let re = 0, im = 0;
+        for (let n = 0; n < N; n++) {
+        const angle = (2 * Math.PI * k * n) / N;
+        re += window[n] * Math.cos(angle);
+        im -= window[n] * Math.sin(angle);
+        }
+        const amplitude = Math.sqrt(re * re + im * im) / N;
+        amplitudeSpectrum.push(amplitude);
+        freqBins.push((k * samplingFreq / N).toFixed(2));
+      }
+      }
+
+      // CSV header
+      let csv = 'Amplitude,Frequency\n';
+      if (freqBins.length && amplitudeSpectrum.length) {
+      for (let i = 0; i < freqBins.length; i++) {
+        csv += `${amplitudeSpectrum[i]},${freqBins[i]}\n`;
+      }
+      }
       res.send(csv);
     } else {
       res.json({
-        sessionInfo: {
-          id: session._id,
-          name: session.name,
-          startTime: session.startTime,
-          endTime: session.endTime,
-          isActive: session.isActive
-        },
-        zAxisData: session.zAxisData,
-        resonanceData: {
-          naturalFrequency: session.naturalFrequency,
-          resonanceFrequencies: session.resonanceFrequencies,
-          peakAmplitude: session.peakAmplitude
-        }
+      sessionInfo: {
+        id: session._id,
+        name: session.name,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        isActive: session.isActive
+      },
+      zAxisData: session.zAxisData,
+      resonanceData: {
+        naturalFrequency: session.naturalFrequency,
+        resonanceFrequencies: session.resonanceFrequencies,
+        peakAmplitude: session.peakAmplitude
+      }
       });
     }
   } catch (error) {
