@@ -139,4 +139,4 @@ void loop() {
   }
 
   delay(10); // Small delay to prevent overwhelming the frequency analysis
-}
+} 
