@@ -9,6 +9,7 @@
 const char* ssid = "Galaxy";
 const char* password = "Barake2023";
 
+
 // WebSocket Server Configuration - Updated for secure connection
 const char* host = "vibrations.onrender.com";
 const int port = 443;  // HTTPS port for secure connection

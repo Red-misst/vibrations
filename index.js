@@ -605,7 +605,7 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     // Calculate sampling frequency from timestamps
     const avgSampleInterval = timestamps.length > 1 
       ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
-      : 50; // Default 50ms interval
+      : 50; // Default 50ms intervala
     const samplingFreq = 1000 / avgSampleInterval; // Convert to Hz
 
     console.log(`Sampling frequency: ${samplingFreq.toFixed(2)} Hz, Average interval: ${avgSampleInterval.toFixed(2)} ms`);
