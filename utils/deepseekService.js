@@ -466,7 +466,7 @@ Use proper markdown formatting:
 - Use bullet points and numbered lists where appropriate
 - Use horizontal rules (---) to separate sections
 
-Please provide scientifically accurate interpretations based on the Z-axis vibration data provided.
+Please provide scientifically accurate interpretations based on data provided.
 `;
 
       // Implement actual API call to DeepSeek

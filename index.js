@@ -505,7 +505,8 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
         stiffness: 0,
         rms: amplitude,
         crestFactor: 1,
-        bandwidth: 0
+        bandwidth: 0,
+        theoreticalFrequency: 0
       };
     }
 
@@ -529,7 +530,8 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
       fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
       naturalFrequency = fftResult.dominantFreq;
     }
-      // Calculate natural frequency characteristics
+
+    // Calculate natural frequency characteristics
     const naturalPeriod = naturalFrequency > 0 ? 1 / naturalFrequency : 0;
     
     // Update to use the actual test mass for stiffness calculation
@@ -551,6 +553,29 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     
     // Calculate frequency spectrum characteristics
     const bandwidth = qFactor > 0 ? naturalFrequency / qFactor : 0;
+
+    // === THEORETICAL FREQUENCY CALCULATION START ===
+    const E = 200e9; // Young's modulus for stainless steel in Pascals
+    const b = 0.025; // Breadth in meters (2.5 cm)
+    const d = 0.001; // Depth in meters (1 mm)
+    const L = 0.25;  // Length in meters (25 cm)
+    const rho = 8000; // Density of stainless steel in kg/m^3
+
+    const I = (b * Math.pow(d, 3)) / 12;
+    const k_theoretical = (3 * E * I) / Math.pow(L, 3);
+    const volume_beam = b * d * L;
+    const m_beam = rho * volume_beam;
+
+    const m_tip = session.tipMass || 0;
+    const m_sensor = session.sensorMass || 0;
+    const m_eff = m_tip + m_sensor + (m_beam / 3);
+
+    const naturalFrequencyTheoretical = m_eff > 0
+      ? (1 / (2 * Math.PI)) * Math.sqrt(k_theoretical / m_eff)
+      : 0;
+
+    console.log(`Theoretical natural frequency: ${naturalFrequencyTheoretical.toFixed(2)} Hz`);
+    // === THEORETICAL FREQUENCY CALCULATION END ===
     
     // Only update the database if this is not a real-time calculation
     if (!isRealtime) {
@@ -568,7 +593,8 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
         rms,
         crestFactor,
         bandwidth,
-        peakForce // Add peak force based on mass
+        peakForce,
+        theoreticalFrequency: naturalFrequencyTheoretical
       };
       
       await session.save();
@@ -577,7 +603,7 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
     }
     
     return {
-      frequency: naturalFrequency,
+      frequency: naturalFrequencyTheoretical,
       qFactor: qFactor,
       amplitude: peakAmplitude,
       naturalPeriod: naturalPeriod,
@@ -585,10 +611,11 @@ async function calculateNaturalFrequency(sessionId, isRealtime = false) {
       rms: rms,
       crestFactor: crestFactor,
       bandwidth: bandwidth,
-      peakForce: peakForce, // Include peak force in return
+      peakForce: peakForce,
       frequencies: fftResult?.frequencies || [],
       magnitudes: fftResult?.magnitudes || [],
-      testMass: testMass // Include the test mass in the return
+      testMass: testMass,
+
     };
     
   } catch (error) {
@@ -606,7 +633,7 @@ function estimateFrequencyFromPeaks(data, samplingFreq) {
   let lastDirection = 0;
   
   for (let i = 1; i < data.length; i++) {
-    const diff = data[i] - data[i-1];
+    const diff = data[i] - data[i - 1];
     if (diff !== 0) {
       const direction = diff > 0 ? 1 : -1;
       if (lastDirection !== 0 && direction !== lastDirection) {
@@ -624,6 +651,7 @@ function estimateFrequencyFromPeaks(data, samplingFreq) {
   
   return estimatedFreq;
 }
+
 
 // Helper function to broadcast to web clients
 function broadcastToWebClients(data) {
@@ -678,13 +706,25 @@ app.get('/api/export/:sessionId', async (req, res) => {
     const format = req.query.format || 'json';
     
     if (format === 'csv') {
+      // Calculate FFT for amplitude vs frequency
+      const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
+      const timestamps = session.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
+      const avgSampleInterval = timestamps.length > 1 
+        ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
+        : 50;
+      const samplingFreq = 1000 / avgSampleInterval;
+      // Use FFT utility
+      const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
+
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="vibration-data-${session._id}.csv"`);
-      
-      let csv = 'Timestamp,DeltaZ,RawZ,ReceivedAt\n';
-      session.zAxisData.forEach(data => {
-        csv += `${data.timestamp},${data.deltaZ},${data.rawZ},${data.receivedAt}\n`;
-      });
+      res.setHeader('Content-Disposition', `attachment; filename="frequency-amplitude-${session._id}.csv"`);
+
+      let csv = 'Frequency (Hz),Amplitude\n';
+      if (fftResult && fftResult.frequencies && fftResult.magnitudes) {
+        for (let i = 0; i < fftResult.frequencies.length; i++) {
+          csv += `${fftResult.frequencies[i]},${fftResult.magnitudes[i]}\n`;
+        }
+      }
       res.send(csv);
     } else {
       res.json({

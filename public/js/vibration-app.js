@@ -174,7 +174,8 @@ function initializeCharts() {
                     },
                     grid: {
                         color: 'rgba(75, 85, 99, 0.2)'
-                    }
+                    },
+                    beginAtZero: true
                 },
                 y: {
                     title: {
