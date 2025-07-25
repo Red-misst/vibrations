@@ -316,6 +316,47 @@ function initializeCharts() {
         });
     }
 
+    // Update options for all charts to improve performance
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false, // Disable animations for better performance
+        elements: {
+            line: {
+                tension: 0.2 // Reduce line tension for better performance
+            },
+            point: {
+                radius: 0 // Hide points for better performance
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10 // Limit number of ticks for better performance
+                }
+            },
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    maxTicksLimit: 8 // Limit number of ticks for better performance
+                }
+            }
+        }
+    };
+
+    // Apply the common options to each chart
+    [rawZChart, deltaZChart, frequencyChart].forEach(chart => {
+        Object.assign(chart.options, commonOptions);
+        chart.update('none');
+    });
+    
     debug("Charts initialized successfully");
 }
 
@@ -395,6 +436,31 @@ function connectWebSocket() {
     }
 }
 
+function updateConnectionStatus(status) {
+    const indicator = document.getElementById('connectionIndicator');
+    const statusText = document.getElementById('connectionStatus');
+    
+    indicator.className = 'status-indicator';
+    
+    switch (status) {
+        case 'connected':
+            indicator.classList.add('connected');
+            statusText.textContent = 'Connected';
+            statusText.className = 'ml-2 font-semibold text-green-400';
+            break;
+        case 'disconnected':
+            indicator.classList.add('disconnected');
+            statusText.textContent = 'Disconnected';
+            statusText.className = 'ml-2 font-semibold text-red-400';
+            break;
+        case 'error':
+            indicator.classList.add('disconnected');
+            statusText.textContent = 'Connection Error';
+            statusText.className = 'ml-2 font-semibold text-red-400';
+            break;
+    }
+}
+
 function handleWebSocketMessage(data) {
     debug(`Received WebSocket message: ${data.type}`);
     
@@ -443,556 +509,139 @@ function handleWebSocketMessage(data) {
 function handleSessionData(data) {
     debug("Handling historical session data", data);
     viewingHistoricalSession = true;
-    
+
     // Clear current charts
     clearCharts();
-    
+
     if (data.data && data.data.length > 0) {
-        // Set the data point count
         dataPointCount = data.data.length;
         document.getElementById('dataPointCount').textContent = dataPointCount;
-        
-        // Process the time series data
+
+        // Process time series data
         const timestamps = [];
         const rawZValues = [];
         const deltaZValues = [];
-        
+
+        // Track metrics
+        let maxAmplitude = 0;
+        let frequencyAtMaxAmplitude = 0;
+
         data.data.forEach(point => {
-            // Get time from timestamp or use receivedAt
-            let timeLabel;
-            if (point.timestamp) {
-                timeLabel = new Date(parseInt(point.timestamp)).toLocaleTimeString();
-            } else {
-                timeLabel = new Date(point.receivedAt).toLocaleTimeString();
-            }
-            
+            const timeLabel = new Date(parseInt(point.timestamp) || point.receivedAt).toLocaleTimeString();
             timestamps.push(timeLabel);
-            rawZValues.push(point.rawZ);
-            deltaZValues.push(point.deltaZ);
+            
+            const rawZ = point.rawAcceleration || point.rawZ || 0;
+            const deltaZ = point.deltaZ || 0;
+            
+            rawZValues.push(rawZ);
+            deltaZValues.push(deltaZ);
+
+            // Update max amplitude and its corresponding frequency
+            if (point.amplitude > maxAmplitude) {
+                maxAmplitude = point.amplitude;
+                frequencyAtMaxAmplitude = point.frequency;
+            }
         });
-        
-        // Update the charts
+
+        // Update metrics display
+        document.getElementById('frequencyValue').textContent = frequencyAtMaxAmplitude.toFixed(2);
+        document.getElementById('amplitudeValue').textContent = maxAmplitude.toFixed(3);
+        document.getElementById('currentZValue').textContent = deltaZValues[deltaZValues.length - 1].toFixed(3);
+
+        // Update time-domain charts
         rawZChart.data.labels = timestamps;
         rawZChart.data.datasets[0].data = rawZValues;
+        rawZChart.update();
+
         deltaZChart.data.labels = timestamps;
         deltaZChart.data.datasets[0].data = deltaZValues;
-        
-        // Take a sample of data points for display if there are too many
-        if (timestamps.length > 50) {
-            const skipFactor = Math.ceil(timestamps.length / 50);
-            rawZChart.data.labels = timestamps.filter((_, i) => i % skipFactor === 0);
-            rawZChart.data.datasets[0].data = rawZValues.filter((_, i) => i % skipFactor === 0);
-            deltaZChart.data.labels = timestamps.filter((_, i) => i % skipFactor === 0);
-            deltaZChart.data.datasets[0].data = deltaZValues.filter((_, i) => i % skipFactor === 0);
-        }
-        
-        // Update charts
-        rawZChart.update();
         deltaZChart.update();
-        
-        // Update the metrics with frequency data
-        if (data.frequencyData) {
-            debug("Processing frequency data", data.frequencyData);
-            
-            // Update frequency metric
-            if (data.frequencyData.naturalFrequency) {
-                document.getElementById('frequencyValue').textContent = data.frequencyData.naturalFrequency.toFixed(2);
-            }
-            
-            // Update Q Factor metric
-            if (data.frequencyData.qFactor) {
-                document.getElementById('qFactorValue').textContent = data.frequencyData.qFactor.toFixed(1);
-            }
-            
-            // Update peak amplitude metric
-            if (data.frequencyData.peakAmplitude) {
-                document.getElementById('amplitudeValue').textContent = data.frequencyData.peakAmplitude.toFixed(3);
-            }
-            
-            // Update current Z value with last data point
-            const lastDeltaZ = data.data[data.data.length - 1].deltaZ;
-            document.getElementById('currentZValue').textContent = lastDeltaZ.toFixed(3);
-              // Generate frequency domain data for the natural frequency chart
-            generateFrequencyResponseData(data.frequencyData);
-            
-            // Process frequency and amplitude time series if available
+
+        // Update frequency chart with raw data (no sorting)
+        if (data.frequencyData && data.frequencyData.frequencies && data.frequencyData.amplitudes) {
+            // Use raw frequency data directly
+            frequencyChart.data.labels = data.frequencyData.frequencies;
+            frequencyChart.data.datasets[0].data = data.frequencyData.amplitudes;
+            frequencyChart.update();
+
+            // Update time series charts if they exist
             if (window.frequencyTimeChart && window.amplitudeTimeChart) {
-                debug("Updating frequency and amplitude time series charts");
-                
-                // Check if we have frequency time series from the TestSession data
-                if (data.frequencyData.frequencyTimeSeries && data.frequencyData.frequencyTimeSeries.length > 0) {
-                    const freqTimeLabels = data.frequencyData.frequencyTimeSeries.map(point => {
-                        return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
-                    });
-                    const freqValues = data.frequencyData.frequencyTimeSeries.map(point => point.frequency);
-                    
-                    window.frequencyTimeChart.data.labels = freqTimeLabels;
-                    window.frequencyTimeChart.data.datasets[0].data = freqValues;
-                    window.frequencyTimeChart.update();
-                } else {
-                    // Generate synthetic frequency time series from the historical data
-                    const timestamps = [];
-                    const frequencies = [];
-                    
-                    // Use a sliding window approach to calculate frequency over time
-                    const windowSize = Math.min(10, Math.floor(data.data.length / 4));
-                    if (windowSize >= 3) { // Need at least 3 points for meaningful frequency calculation
-                        for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
-                            const windowData = data.data.slice(i, i + windowSize);
-                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
-                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
-                                                       // Calculate frequency for this window using the fftUtils approach
-                            // Extract just the deltaZ values for frequency calculation
-                            const windowValues = windowData.map(point => point.deltaZ);
-                            
-                            // Estimate sampling frequency based on timestamps
-                            let samplingFreq = 100; // Default value if we can't calculate
-                            if (windowData.length > 1) {
-                                const firstTime = new Date(parseInt(windowData[0].timestamp) || windowData[0].receivedAt).getTime();
-                                const lastTime = new Date(parseInt(windowData[windowData.length-1].timestamp) || windowData[windowData.length-1].receivedAt).getTime();
-                                const duration = (lastTime - firstTime) / 1000; // in seconds
-                                if (duration > 0) {
-                                    samplingFreq = windowData.length / duration;
-                                }
-                            }
-                            
-                            // Use zero-crossing approach for simple frequency estimation
-                            let crossings = 0;
-                            let lastDirection = 0;
-                            
-                            for (let j = 1; j < windowValues.length; j++) {
-                                const diff = windowValues[j] - windowValues[j-1];
-                                if (diff !== 0) {
-                                    const direction = diff > 0 ? 1 : -1;
-                                    if (lastDirection !== 0 && direction !== lastDirection) {
-                                        crossings++;
-                                    }
-                                    lastDirection = direction;
-                                }
-                            }
-                            
-                            // Calculate frequency from zero crossings
-                            let freq = 0;
-                            if (crossings > 0) {
-                                // Each full oscillation has 2 crossings
-                                const oscillations = crossings / 2;
-                                const duration = windowValues.length / samplingFreq;
-                                freq = oscillations / duration;
-                            } else {
-                                // Fallback to the natural frequency if no crossings detected
-                                freq = data.frequencyData.naturalFrequency || 0;
-                            }
-                            
-                            timestamps.push(avgTime);
-                            frequencies.push(freq);
-                        }
-                        
-                        window.frequencyTimeChart.data.labels = timestamps;
-                        window.frequencyTimeChart.data.datasets[0].data = frequencies;
-                        window.frequencyTimeChart.update();
-                    }
-                }
-                
-                // Check if we have amplitude time series from the TestSession data
-                if (data.frequencyData.amplitudeTimeSeries && data.frequencyData.amplitudeTimeSeries.length > 0) {
-                    const ampTimeLabels = data.frequencyData.amplitudeTimeSeries.map(point => {
-                        return new Date(parseInt(point.timestamp) || Date.now()).toLocaleTimeString();
-                    });
-                    const ampValues = data.frequencyData.amplitudeTimeSeries.map(point => point.amplitude);
-                    
-                    window.amplitudeTimeChart.data.labels = ampTimeLabels;
-                    window.amplitudeTimeChart.data.datasets[0].data = ampValues;
-                    window.amplitudeTimeChart.update();
-                } else {
-                    // Generate synthetic amplitude time series from the raw data
-                    const timeLabels = [];
-                    const amplitudes = [];
-                    
-                    // Use a sliding window approach to calculate amplitude over time
-                    const windowSize = Math.min(10, Math.floor(data.data.length / 4));
-                    if (windowSize >= 3) {
-                        for (let i = 0; i < data.data.length - windowSize; i += windowSize / 2) {
-                            const windowData = data.data.slice(i, i + windowSize);
-                            const avgTime = new Date(parseInt(windowData[Math.floor(windowSize/2)].timestamp) || 
-                                                     windowData[Math.floor(windowSize/2)].receivedAt).toLocaleTimeString();
-                                                     
-                            // Calculate peak amplitude in this window
-                            const peakAmplitude = Math.max(...windowData.map(d => Math.abs(d.deltaZ)));
-                            
-                            timeLabels.push(avgTime);
-                            amplitudes.push(peakAmplitude);
-                        }
-                        
-                        window.amplitudeTimeChart.data.labels = timeLabels;
-                        window.amplitudeTimeChart.data.datasets[0].data = amplitudes;
-                        window.amplitudeTimeChart.update();
-                    }
-                }
+                window.frequencyTimeChart.data.labels = timestamps;
+                window.frequencyTimeChart.data.datasets[0].data = data.data.map(p => p.frequency || 0);
+                window.frequencyTimeChart.update();
+
+                window.amplitudeTimeChart.data.labels = timestamps;
+                window.amplitudeTimeChart.data.datasets[0].data = data.data.map(p => p.amplitude || 0);
+                window.amplitudeTimeChart.update();
             }
         }
-        
+
         showNotification("Historical session data loaded successfully", "success");
     } else {
         showNotification("No data available for this session", "error");
     }
 }
 
-// Fixed function to generate frequency response data with better error handling
-function generateFrequencyResponseData(frequencyData) {
-    if (!frequencyData) {
-        debug("No frequency data available");
-        return;
-    }
-    
-    // Check if we have frequency data directly from the server
-    if (frequencyData.frequencies && frequencyData.magnitudes && 
-        frequencyData.frequencies.length > 0 && frequencyData.magnitudes.length > 0) {
-        
-        debug("Using server-provided frequency data");
-        
-        try {
-            // Use the provided frequency and magnitude data
-            frequencyChart.data.labels = [...frequencyData.frequencies];
-            frequencyChart.data.datasets[0].data = [...frequencyData.magnitudes];
-            frequencyChart.update();
-        } catch (error) {
-            debug("Error updating frequency chart with server data:", error);
-        }
-        return;
-    }
-    
-    // Fallback: Generate synthetic frequency response curve if actual data isn't available
-    debug("Generating synthetic frequency response curve");
-    
-    const fn = frequencyData.naturalFrequency || 1; // Default to 1 Hz if undefined
-    const damping = frequencyData.qFactor ? (1 / (2 * frequencyData.qFactor)) : 0.05;
-    
-    // Generate points along a frequency response curve
-    const freqMin = Math.max(0.1, fn * 0.1);
-    const freqMax = fn * 3;
-    const numPoints = 100;
-    const step = (freqMax - freqMin) / (numPoints - 1);
-    
-    const frequencies = [];
-    const amplitudes = [];
-    
-    for (let i = 0; i < numPoints; i++) {
-        const f = freqMin + (step * i);
-        frequencies.push(f.toFixed(2));
-        
-        // Calculate amplitude using frequency response formula for a damped oscillator
-        const r = f / fn; // frequency ratio
-        const amplitude = 1 / Math.sqrt(Math.pow(1 - r*r, 2) + Math.pow(2*damping*r, 2));
-        amplitudes.push(amplitude);
-    }
-    
-    try {
-        frequencyChart.data.labels = frequencies;
-        frequencyChart.data.datasets[0].data = amplitudes;
-        frequencyChart.update();
-        debug("Frequency chart updated with synthetic points:", frequencies.length);
-    } catch (error) {
-        debug("Error updating frequency chart with synthetic data:", error);
-    }
-}
-
 function updateVibrationData(data) {
+    if (viewingHistoricalSession) return;
+
     dataPointCount++;
     document.getElementById('dataPointCount').textContent = dataPointCount;
 
-    // Update real-time metrics for ANY vibration magnitude
-    if (data.frequency !== undefined) {
-        document.getElementById('frequencyValue').textContent = data.frequency.toFixed(2);
-    }
-    if (data.qFactor !== undefined) {
-        document.getElementById('qFactorValue').textContent = data.qFactor.toFixed(1);
-    }
-    if (data.amplitude !== undefined) {
-        document.getElementById('amplitudeValue').textContent = data.amplitude.toFixed(3);
-    }
-    if (data.deltaZ !== undefined) {
-        document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
-    }
-
-    // Format time for display on chart
-    let timestamp;
-    if (data.timestamp) {
-        // Convert timestamp to date if it's a number
-        const time = typeof data.timestamp === 'number' ? new Date(data.timestamp) : new Date();
-        timestamp = time.toLocaleTimeString();
-    } else {
-        timestamp = new Date().toLocaleTimeString();
-    }
+    const timestamp = new Date(data.timestamp || Date.now()).toLocaleTimeString();
     
-    // Safely update charts with null checks
-    try {
-        // Add data to raw Z-axis chart - NO THRESHOLD FILTERING
-        rawZChart.data.labels.push(timestamp);
-        rawZChart.data.datasets[0].data.push(data.rawZ || 0);
+    // Update current values immediately without waiting for animation
+    document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
+    document.getElementById('amplitudeValue').textContent = data.amplitude?.toFixed(3) || '0.000';
 
-        // Add data to delta Z-axis chart - NO THRESHOLD FILTERING
-        deltaZChart.data.labels.push(timestamp);
-        deltaZChart.data.datasets[0].data.push(data.deltaZ || 0);
-
-        // Keep only last 50 data points
-        const maxPoints = 50;
-        if (rawZChart.data.labels.length > maxPoints) {
-            rawZChart.data.labels.shift();
-            rawZChart.data.datasets[0].data.shift();
-            deltaZChart.data.labels.shift();
-            deltaZChart.data.datasets[0].data.shift();
-        }        rawZChart.update('none');
-        deltaZChart.update('none');
-          // Update frequency and amplitude time series with dynamic frequency calculation
-        if (!viewingHistoricalSession && 
-            window.frequencyTimeChart && window.amplitudeTimeChart) {
-            
-            // Calculate frequency from recent data points instead of using a fixed value
-            // This provides a more dynamic view of frequency changes
-            
-            // Store the most recent data points for frequency calculation
-            if (!window.recentDataPoints) {
-                window.recentDataPoints = [];
-            }
-            
-            // Add current data point to recent points array
-            window.recentDataPoints.push({
-                deltaZ: data.deltaZ || 0,
-                timestamp: Date.now()
-            });
-            
-            // Keep only last 10 data points for frequency calculation
-            if (window.recentDataPoints.length > 10) {
-                window.recentDataPoints.shift();
-            }
-            
-            // Calculate frequency from recent data points
-            let calculatedFreq = 0;
-            
-            if (window.recentDataPoints.length >= 3) {
-                // Extract deltaZ values
-                const values = window.recentDataPoints.map(p => p.deltaZ);
-                
-                // Calculate sampling frequency
-                const firstTime = window.recentDataPoints[0].timestamp;
-                const lastTime = window.recentDataPoints[window.recentDataPoints.length-1].timestamp;
-                const duration = (lastTime - firstTime) / 1000; // in seconds
-                const samplingFreq = duration > 0 ? window.recentDataPoints.length / duration : 100;
-                
-                // Count zero-crossings for frequency estimation
-                let crossings = 0;
-                let lastDirection = 0;
-                
-                for (let i = 1; i < values.length; i++) {
-                    const diff = values[i] - values[i-1];
-                    if (diff !== 0) {
-                        const direction = diff > 0 ? 1 : -1;
-                        if (lastDirection !== 0 && direction !== lastDirection) {
-                            crossings++;
-                        }
-                        lastDirection = direction;
-                    }
-                }
-                
-                // Calculate frequency from zero crossings
-                if (crossings > 0) {
-                    // Each full oscillation has 2 crossings
-                    const oscillations = crossings / 2;
-                    calculatedFreq = oscillations / (duration || 0.1);
-                } else {
-                    // If no crossings, use the passed frequency or default to 0
-                    calculatedFreq = data.frequency || 0;
-                }
-            } else {
-                calculatedFreq = data.frequency || 0;
-            }
-            
-            // Add data to frequency time chart with our calculated frequency
-            window.frequencyTimeChart.data.labels.push(timestamp);
-            window.frequencyTimeChart.data.datasets[0].data.push(calculatedFreq);
-            
-            // Add data to amplitude time chart
-            window.amplitudeTimeChart.data.labels.push(timestamp);
-            window.amplitudeTimeChart.data.datasets[0].data.push(Math.abs(data.deltaZ) || 0);
-            
-            // Keep only last 50 data points for time series charts
-            if (window.frequencyTimeChart.data.labels.length > 50) {
-                window.frequencyTimeChart.data.labels.shift();
-                window.frequencyTimeChart.data.datasets[0].data.shift();
-            }
-            
-            if (window.amplitudeTimeChart.data.labels.length > 50) {
-                window.amplitudeTimeChart.data.labels.shift();
-                window.amplitudeTimeChart.data.datasets[0].data.shift();
-            }
-            
-            // Update the charts with minimal performance impact
-            window.frequencyTimeChart.update('none');
-            window.amplitudeTimeChart.update('none');
-        }
-    } catch (error) {
-        debug("Error updating vibration charts:", error);
-    }
-}
-
-function updateConnectionStatus(status) {
-    const indicator = document.getElementById('connectionIndicator');
-    const statusText = document.getElementById('connectionStatus');
+    // Use the optimized chart update function
+    updateChartData(rawZChart, timestamp, data.rawAcceleration || data.rawZ || 0);
+    updateChartData(deltaZChart, timestamp, data.deltaZ || 0);
     
-    indicator.className = 'status-indicator';
-    
-    switch (status) {
-        case 'connected':
-            indicator.classList.add('connected');
-            statusText.textContent = 'Connected';
-            statusText.className = 'ml-2 font-semibold text-green-400';
-            break;
-        case 'disconnected':
-            indicator.classList.add('disconnected');
-            statusText.textContent = 'Disconnected';
-            statusText.className = 'ml-2 font-semibold text-red-400';
-            break;
-        case 'error':
-            indicator.classList.add('disconnected');
-            statusText.textContent = 'Connection Error';
-            statusText.className = 'ml-2 font-semibold text-red-400';
-            break;
-    }
-}
-
-function updateSessionStatus(data) {
-    currentSession = data.sessionId;
-    document.getElementById('sessionId').textContent = data.sessionId || 'None';
-    
-    if (data.isActive) {
-        isRecording = true;
-        updateButtonStates(true);
-    }
-    
-    if (data.connectedDevices && data.connectedDevices.length > 0) {
-        connectedDevices = new Set(data.connectedDevices);
-        updateDeviceDisplay();
-    }
-}
-
-function updateDeviceStatus(data) {
-    debug("Device status update:", data);
-    if (data.status === 'connected') {
-        connectedDevices.add(data.deviceId);
-    } else {
-        connectedDevices.delete(data.deviceId);
-    }
-    updateDeviceDisplay();
-}
-
-function updateDeviceDisplay() {
-    const deviceIndicator = document.getElementById('deviceIndicator');
-    const deviceStatus = document.getElementById('deviceStatus');
-    
-    deviceIndicator.className = 'status-indicator';
-    
-    if (connectedDevices.size > 0) {
-        deviceIndicator.classList.add(isRecording ? 'recording' : 'connected');
-        deviceStatus.textContent = `${connectedDevices.size} device${connectedDevices.size > 1 ? 's' : ''} connected`;
-        deviceStatus.className = 'ml-2 font-semibold text-green-400';
-        
-        // Enable start button if devices are connected
-        document.getElementById('startTest').disabled = isRecording;
-        document.getElementById('startTest').classList.toggle('opacity-50', isRecording);
-        document.getElementById('startSessionBtn').disabled = isRecording;
-        document.getElementById('startSessionBtn').classList.toggle('opacity-50', isRecording);
-    } else {
-        deviceIndicator.classList.add('disconnected');
-        deviceStatus.textContent = 'No devices';
-        deviceStatus.className = 'ml-2 font-semibold text-red-400';
-        
-        // Disable start button if no devices
-        document.getElementById('startTest').disabled = true;
-        document.getElementById('startTest').classList.add('opacity-50');
-        document.getElementById('startSessionBtn').disabled = true;
-        document.getElementById('startSessionBtn').classList.add('opacity-50');
-    }
-}
-
-function updateButtonStates(isActive) {
-    document.getElementById('startTest').disabled = isActive;
-    document.getElementById('startTest').classList.toggle('opacity-50', isActive);
-    document.getElementById('stopTest').disabled = !isActive;
-    document.getElementById('stopTest').classList.toggle('opacity-50', !isActive);
-    document.getElementById('startSessionBtn').disabled = isActive;
-    document.getElementById('startSessionBtn').classList.toggle('opacity-50', isActive);
-    document.getElementById('sessionName').disabled = isActive;
-}
-
-function updateResonanceData(data) {
-    // Update frequency chart for ANY frequency data available
-    if (data.frequencies && data.magnitudes) {
-        debug("Updating frequency chart with data points:", data.frequencies.length);
-        frequencyChart.data.labels = data.frequencies;
-        frequencyChart.data.datasets[0].data = data.magnitudes;
-        frequencyChart.update();
-    } else {
-        // Generate synthetic data for any detected frequency
-        if (data.frequency && data.frequency > 0) {
-            generateFrequencyResponseData({
-                naturalFrequency: data.frequency,
-                qFactor: data.qFactor || 1
-            });
+    if (!isRecording && data.frequency && data.amplitude) {
+        const freqIndex = frequencyChart.data.labels.indexOf(data.frequency);
+        if (freqIndex === -1) {
+            frequencyChart.data.labels.push(data.frequency);
+            frequencyChart.data.datasets[0].data.push(data.amplitude);
+            frequencyChart.update('none');
+        } else if (data.amplitude > frequencyChart.data.datasets[0].data[freqIndex]) {
+            frequencyChart.data.datasets[0].data[freqIndex] = data.amplitude;
+            frequencyChart.update('none');
         }
     }
-    
-    // Update frequency time series chart if it exists and we're not viewing historical data
-    if (!viewingHistoricalSession && window.frequencyTimeChart && data.frequency) {
-        const timestamp = new Date().toLocaleTimeString();
-        window.frequencyTimeChart.data.labels.push(timestamp);
-        window.frequencyTimeChart.data.datasets[0].data.push(data.frequency);
-        
-        // Keep only the last 50 points
-        if (window.frequencyTimeChart.data.labels.length > 50) {
-            window.frequencyTimeChart.data.labels.shift();
-            window.frequencyTimeChart.data.datasets[0].data.shift();
-        }
-        
-        window.frequencyTimeChart.update();
-    }
-    
-    // Also update the frequency analysis results table
-    if (typeof updateFrequencyAnalysisTable === 'function') {
-        updateFrequencyAnalysisTable(data);
-    }
 }
 
-// New function to update the frequency analysis results table
-function updateFrequencyAnalysisTable(data) {
-    debug("Updating frequency analysis table", data);
+function updateButtonStates(isRecording) {
+    const startButton = document.getElementById('startTest');
+    const stopButton = document.getElementById('stopTest');
+    const exportButton = document.getElementById('exportData');
+    const startSessionBtn = document.getElementById('startSessionBtn');
     
-    const tableBody = document.getElementById('frequencyAnalysisTableBody');
-    tableBody.innerHTML = ''; // Clear existing rows
+    startButton.disabled = isRecording;
+    startButton.classList.toggle('opacity-50', isRecording);
     
-    // Create a row for each frequency data point
-    if (data.frequencies && data.magnitudes) {
-        for (let i = 0; i < data.frequencies.length; i++) {
-            const freq = data.frequencies[i];
-            const mag = data.magnitudes[i];
-            
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="px-4 py-3">${freq.toFixed(2)} Hz</td>
-                <td class="px-4 py-3">${mag.toFixed(3)}</td>
-            `;
-            tableBody.appendChild(row);
-        }
-    } else {
-        // Fallback: show estimated frequency and magnitude
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="px-4 py-3">N/A</td>
-            <td class="px-4 py-3">N/A</td>
-        `;
-        tableBody.appendChild(row);
-    }
+    stopButton.disabled = !isRecording;
+    stopButton.classList.toggle('opacity-50', !isRecording);
+    
+    exportButton.disabled = isRecording;
+    exportButton.classList.toggle('opacity-50', isRecording);
+    
+    startSessionBtn.disabled = isRecording;
+    startSessionBtn.classList.toggle('opacity-50', isRecording);
 }
 
+function updateChartData(chart, label, value) {
+    if (chart.data.labels.length > 50) { // Reduce buffer size for better performance
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+    }
+    
+    chart.data.labels.push(label);
+    chart.data.datasets[0].data.push(value);
+    chart.update('none'); // Use 'none' mode for better performance
+}
+
+// Test session control buttons
 function onTestStarted(data) {
     debug("Test started:", data);
     currentSession = data.sessionId;
@@ -1003,8 +652,17 @@ function onTestStarted(data) {
     // Update UI buttons
     updateButtonStates(true);
     
-    // Clear charts
-    clearCharts();
+    // Clear only the real-time charts
+    rawZChart.data.labels = [];
+    rawZChart.data.datasets[0].data = [];
+    deltaZChart.data.labels = [];
+    deltaZChart.data.datasets[0].data = [];
+    rawZChart.update();
+    deltaZChart.update();
+    
+    // Reset only essential displays during recording
+    document.getElementById('currentZValue').textContent = '0.000';
+    document.getElementById('amplitudeValue').textContent = '0.000';
     
     // Update session ID display
     document.getElementById('sessionId').textContent = currentSession || 'None';
@@ -1020,15 +678,18 @@ function onTestStopped(data) {
     // Update UI buttons
     updateButtonStates(false);
     
-    // Show processing indicator
-    showNotification("Processing data and calculating resonance...", "info");
+    // Show processing indicator while loading full data
+    showNotification("Processing data and calculating frequency analysis...", "info");
     
-    // Request updated session list
-    socket.send(JSON.stringify({
-        type: 'get_sessions'
-    }));
-    
-    updateDeviceDisplay();
+    // Request complete session data after stopping
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        setTimeout(() => {
+            socket.send(JSON.stringify({
+                type: 'get_session_data',
+                sessionId: currentSession
+            }));
+        }, 1000); // Give server time to process data
+    }
 }
 
 function clearCharts() {
@@ -1186,11 +847,15 @@ function exportSession(sessionId) {
 
 function stopSession(sessionId) {
     if (confirm('Are you sure you want to stop this session?')) {
-        socket.send(JSON.stringify({
-            type: 'stop_test'
-        }));
-        
-        showNotification("Stopping session...", "info");
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'stop_test',
+                sessionId: sessionId || currentSession  // Add fallback to current session
+            }));
+            showNotification("Stopping session...", "info");
+        } else {
+            showNotification("Connection lost. Please refresh the page.", "error");
+        }
     }
 }
 
@@ -1288,6 +953,7 @@ document.getElementById('startTest').addEventListener('click', () => {
             type: 'start_test',
             sessionName: sessionName
         }));
+        updateButtonStates(true);
     } else {
         showNotification("Connection to server lost. Reconnecting...", "error");
         connectWebSocket();
@@ -1297,6 +963,7 @@ document.getElementById('startTest').addEventListener('click', () => {
 document.getElementById('stopTest').addEventListener('click', () => {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'stop_test' }));
+        updateButtonStates(false);
     } else {
         showNotification("Connection to server lost. Reconnecting...", "error");
         connectWebSocket();

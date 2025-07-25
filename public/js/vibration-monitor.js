@@ -12,11 +12,10 @@ class VibrationMonitor {
             labels: [],
             deltaZ: []
         };
-        this.maxDataPoints = 50;
+        this.maxDataPoints = 100; // Increased for better visualization
         this.statistics = {
-            totalReadings: 0,
-            totalVibration: 0,
-            maxVibration: 0
+            maxVibration: 0,
+            naturalFrequency: 0
         };
         this.frequencyChart = null;
         this.reconnectAttempts = 0;
@@ -96,18 +95,100 @@ class VibrationMonitor {
                 this.onTestStopped(data);
                 break;
             case 'vibration_data':
+                // Handle real-time vibration and FFT data
                 this.onVibrationData(data);
                 break;
             case 'sessions_list':
                 this.updateSessionsTable(data.sessions);
                 break;
             case 'session_data':
-                this.loadSessionData(data);
+                this.displaySessionData(data);
                 break;
-            case 'frequency_data':
-                // Add handler for frequency data
-                this.updateFrequencyDisplay(data);
-                break;
+        }
+    }
+
+    onVibrationData(data) {
+        // Update time-domain chart
+        const timestamp = new Date(data.timestamp);
+        const timeStr = timestamp.toLocaleTimeString();
+        
+        this.chartData.labels.push(timeStr);
+        this.chartData.deltaZ.push(data.deltaZ);
+
+        // Keep only last maxDataPoints
+        if (this.chartData.labels.length > this.maxDataPoints) {
+            this.chartData.labels.shift();
+            this.chartData.deltaZ.shift();
+        }
+
+        // Update time-domain chart
+        this.chart.data.labels = this.chartData.labels;
+        this.chart.data.datasets[0].data = this.chartData.deltaZ;
+        this.chart.update('quiet');
+
+        // Update statistics only if values are higher than current
+        if (data.amplitude > this.statistics.maxVibration) {
+            this.statistics.maxVibration = data.amplitude;
+            document.getElementById('peak-amplitude').textContent = data.amplitude.toFixed(3);
+        }
+
+        if (data.frequency > this.statistics.naturalFrequency) {
+            this.statistics.naturalFrequency = data.frequency;
+            document.getElementById('natural-frequency').textContent = data.frequency.toFixed(1) + ' Hz';
+        }
+
+        // Update frequency chart with new frequency point
+        if (data.frequency > 0 && data.amplitude > 0) {
+            const freqIndex = this.frequencyChart.data.labels.indexOf(data.frequency);
+            if (freqIndex === -1) {
+                // New frequency point
+                this.frequencyChart.data.labels.push(data.frequency);
+                this.frequencyChart.data.datasets[0].data.push(data.amplitude);
+            } else if (data.amplitude > this.frequencyChart.data.datasets[0].data[freqIndex]) {
+                // Update amplitude if higher
+                this.frequencyChart.data.datasets[0].data[freqIndex] = data.amplitude;
+            }
+            this.frequencyChart.update('quiet');
+        }
+    }
+
+    displaySessionData(data) {
+        // Clear existing data
+        this.chartData.labels = [];
+        this.chartData.deltaZ = [];
+        this.frequencyChart.data.labels = [];
+        this.frequencyChart.data.datasets[0].data = [];
+
+        // Process and display historical session data
+        data.zAxisData.forEach(point => {
+            const timestamp = new Date(point.timestamp);
+            this.chartData.labels.push(timestamp.toLocaleTimeString());
+            this.chartData.deltaZ.push(point.deltaZ);
+
+            if (point.frequency !== undefined && point.amplitude !== undefined) {
+                const freqIndex = this.frequencyChart.data.labels.indexOf(point.frequency);
+                if (freqIndex === -1) {
+                    this.frequencyChart.data.labels.push(point.frequency);
+                    this.frequencyChart.data.datasets[0].data.push(point.amplitude);
+                } else if (point.amplitude > this.frequencyChart.data.datasets[0].data[freqIndex]) {
+                    this.frequencyChart.data.datasets[0].data[freqIndex] = point.amplitude;
+                }
+            }
+        });
+
+        // Update charts
+        this.chart.data.labels = this.chartData.labels;
+        this.chart.data.datasets[0].data = this.chartData.deltaZ;
+        this.chart.update();
+
+        this.frequencyChart.update();
+
+        // Update peak values from session data
+        if (data.resonanceData) {
+            document.getElementById('peak-amplitude').textContent = 
+                data.resonanceData.peakAmplitude?.toFixed(3) || '0.000';
+            document.getElementById('natural-frequency').textContent = 
+                (data.resonanceData.naturalFrequency?.toFixed(1) || '0.0') + ' Hz';
         }
     }    initChart() {
         const ctx = document.getElementById('vibration-chart').getContext('2d');

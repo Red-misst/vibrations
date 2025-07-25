@@ -7,8 +7,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-// Add the import for our new FFT utility functions
-import { performSimpleFFT, calculateQFactor } from './utils/fftUtils.js';
 // Import models properly - make sure to import them only once
 import TestSession from './models/TestSession.js';
 import ChatMessage from './models/ChatMessage.js';
@@ -76,14 +74,15 @@ mongoose.connect(process.env.MONGODB_URI, {
   minPoolSize: parseInt(process.env.DB_MIN_POOL_SIZE) || 5,
 });
 
-// Simplified VibrationData schema - Z-axis only
+// Simplified VibrationData schema - Add FFT data fields
 const VibrationDataSchema = new mongoose.Schema({
   sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TestSession', required: true },
   deviceId: { type: String, default: 'unknown' },
   timestamp: { type: Date, default: Date.now },
   deltaZ: { type: Number, required: true },
-  rawZ: { type: Number, required: true },
-  magnitude: { type: Number, default: 0 }, // Same as deltaZ for single axis
+  frequency: { type: Number, default: 0 },
+  amplitude: { type: Number, default: 0 },
+  rawAcceleration: { type: Number, default: 0 },
   receivedAt: { type: Date, default: Date.now }
 });
 
@@ -230,10 +229,6 @@ wss.on('connection', (ws, req) => {
             
             await currentSession.save();
             
-            // Calculate natural frequency after saving session data
-            console.log(`Calculating natural frequency for session ${currentSession._id}`);
-            await calculateNaturalFrequency(currentSession._id);
-            
             // Broadcast to all web clients
             const response = JSON.stringify({
               type: 'test_stopped',
@@ -284,7 +279,11 @@ wss.on('connection', (ws, req) => {
         if (data.type === 'get_session_data') {
           try {
             console.log(`Retrieving session data for: ${data.sessionId}`);
-            const session = await TestSession.findById(data.sessionId);
+            // Get both session and vibration data
+            const [session, vibrationData] = await Promise.all([
+              TestSession.findById(data.sessionId),
+              VibrationData.find({ sessionId: data.sessionId }).sort({ timestamp: 1 })
+            ]);
             
             if (!session) {
               console.log(`Session not found: ${data.sessionId}`);
@@ -294,54 +293,32 @@ wss.on('connection', (ws, req) => {
               }));
               return;
             }
+
+            // Transform vibration data to include all necessary fields
+            const zAxisData = vibrationData.map(v => ({
+              timestamp: v.timestamp,
+              deltaZ: v.deltaZ,
+              frequency: v.frequency,
+              amplitude: v.amplitude,
+              rawAcceleration: v.rawAcceleration,
+              _id: v._id,
+              receivedAt: v.receivedAt
+            }));
             
-            // If frequency analysis isn't complete and the test is done, calculate it
-            if (!session.frequencyAnalysisComplete && !session.isActive) {
-              console.log(`Calculating natural frequency for historical session: ${data.sessionId}`);
-              await calculateNaturalFrequency(session._id);
-            }
-            
-            // Get the updated session with frequency data
-            const updatedSession = await TestSession.findById(data.sessionId);
-            
-            console.log(`Sending session data with ${updatedSession.zAxisData?.length || 0} data points`);
-            
-            // Enhanced response that includes both data and frequency analysis
             const responseData = {
               type: 'session_data',
               sessionId: data.sessionId,
-              data: updatedSession.zAxisData || [],
+              data: zAxisData,
               frequencyData: {
-                resonanceFrequencies: updatedSession.resonanceFrequencies || [],
-                naturalFrequency: updatedSession.naturalFrequency || 0,
-                peakAmplitude: updatedSession.peakAmplitude || 0,
-                naturalFrequencies: updatedSession.mechanicalProperties?.naturalFrequencies || []
+                frequencies: zAxisData.map(d => d.frequency).filter(f => f !== undefined && f !== null),
+                amplitudes: zAxisData.map(d => d.amplitude).filter(a => a !== undefined && a !== null),
+                rawAccelerations: zAxisData.map(d => d.rawAcceleration).filter(r => r !== undefined && r !== null),
+                naturalFrequency: session.naturalFrequency,
+                peakAmplitude: session.peakAmplitude,
+                qFactor: session.mechanicalProperties?.qFactor,
+                bandwidth: session.mechanicalProperties?.bandwidth
               }
             };
-            
-            // Include FFT data for frequency visualization if available
-            if (updatedSession.zAxisData && updatedSession.zAxisData.length >= 10) {
-              const zAxisRawData = updatedSession.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
-              const timestamps = updatedSession.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
-              
-              // Calculate sampling frequency
-              const avgSampleInterval = timestamps.length > 1 
-                ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
-                : 50; 
-              const samplingFreq = 1000 / avgSampleInterval;
-              
-              // Calculate FFT data
-              const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
-              
-              // Add to response
-              responseData.frequencyData.frequencies = fftResult.frequencies;
-              responseData.frequencyData.magnitudes = fftResult.magnitudes;
-            }
-            
-            // Also include mechanical properties if they exist
-            if (updatedSession.mechanicalProperties) {
-              responseData.frequencyData.mechanicalProperties = updatedSession.mechanicalProperties;
-            }
             
             ws.send(JSON.stringify(responseData));
           } catch (error) {
@@ -447,6 +424,52 @@ wss.on('connection', (ws, req) => {
             });
           }
         }
+        
+        // Handle FFT result from ESP8266
+        if (data.type === 'fft_result' && currentSession) {
+          // Store FFT data from ESP8266
+          const vibrationData = new VibrationData({
+            sessionId: currentSession._id,
+            deviceId: data.deviceId || 'unknown',
+            timestamp: new Date(data.timestamp || Date.now()),
+            deltaZ: data.deltaZ || 0,
+            frequency: data.frequency || 0,
+            amplitude: data.amplitude || 0,
+            rawAcceleration: data.raw_acceleration || 0,
+            receivedAt: new Date()
+          });
+
+          await vibrationData.save();
+
+          // Update session with latest data point
+          if (!currentSession.zAxisData) currentSession.zAxisData = [];
+          
+          currentSession.zAxisData.push({
+            timestamp: data.timestamp,
+            deltaZ: data.deltaZ,
+            frequency: data.frequency,
+            amplitude: data.amplitude,
+            rawAcceleration: data.raw_acceleration
+          });
+          
+          // Keep only last 100 samples
+          if (currentSession.zAxisData.length > 100) {
+            currentSession.zAxisData = currentSession.zAxisData.slice(-100);
+          }
+
+          // Broadcast data to web clients
+          broadcastToWebClients({
+            type: 'vibration_data',
+            sessionId: currentSession._id,
+            deviceId: data.deviceId,
+            timestamp: data.timestamp,
+            deltaZ: data.deltaZ,
+            frequency: data.frequency,
+            amplitude: data.amplitude,
+            rawAcceleration: data.raw_acceleration,
+            receivedAt: new Date().toISOString()
+          });
+        }
       } catch (error) {
         console.error('Error processing ESP8266 data:', error);
       }
@@ -471,265 +494,6 @@ wss.on('connection', (ws, req) => {
     });
   }
 });
-
-/**
- * Calculate all natural frequencies using theoretical approach for cantilever beam
- * @param {Object} session - The session object containing beam and load parameters
- * @param {number} numModes - Number of vibration modes to calculate (default: 5)
- * @returns {Array} Array of natural frequencies for each mode
- */
-function calculateTheoreticalNaturalFrequencies(session, numModes = 5) {
-  // Beam material properties (stainless steel)
-  const E = 200e9; // Young's modulus in Pascals
-  const rho = 8000; // Density in kg/m^3
-  
-  // Beam geometry
-  const b = 0.025; // Breadth in meters (2.5 cm)
-  const d = 0.001; // Depth in meters (1 mm)
-  const L = 0.25;  // Length in meters (25 cm)
-  
-  // Calculate beam properties
-  const I = (b * Math.pow(d, 3)) / 12; // Second moment of area
-  const A = b * d; // Cross-sectional area
-  const m_beam = rho * A * L; // Total beam mass
-  
-  // Load masses
-  const m_tip = session.tipMass || 0;
-  const m_sensor = session.sensorMass || 0;
-  
-  // Eigenvalue constants for cantilever beam with tip mass
-  // These are solutions to the characteristic equation for cantilever beams
-  const eigenvalues = [
-    1.875, // 1st mode
-    4.694, // 2nd mode  
-    7.855, // 3rd mode
-    10.996, // 4th mode
-    14.137  // 5th mode
-  ];
-  
-  // For higher modes, approximate formula: (2n-1)π/2
-  const getEigenvalue = (n) => {
-    if (n <= 5) return eigenvalues[n-1];
-    return (2*n - 1) * Math.PI / 2;
-  };
-  
-  const naturalFrequencies = [];
-  
-  for (let mode = 1; mode <= numModes; mode++) {
-    const lambda = getEigenvalue(mode);
-    
-    // For cantilever beam with tip mass, the natural frequency is:
-    // f_n = (λ_n²/2π) * sqrt(EI / (ρAL⁴)) * correction_factor
-    
-    // Base frequency without tip mass
-    let f_base = (Math.pow(lambda, 2) / (2 * Math.PI)) * Math.sqrt(E * I / (rho * A * Math.pow(L, 4)));
-    
-    // Tip mass correction factor
-    // For cantilever with tip mass, we need to solve the modified characteristic equation
-    // This is an approximation that works well for small tip masses
-    if (m_tip > 0) {
-      const mu = m_tip / m_beam; // Mass ratio
-      const correction = 1 / Math.sqrt(1 + mu * Math.pow(lambda, -2));
-      f_base *= correction;
-    }
-    
-    naturalFrequencies.push({
-      mode: mode,
-      frequency: f_base,
-      eigenvalue: lambda,
-      description: `Mode ${mode} - ${mode === 1 ? 'Fundamental' : `${mode}${getOrdinalSuffix(mode)} harmonic`}`
-    });
-  }
-  
-  return naturalFrequencies;
-}
-
-/**
- * Helper function to get ordinal suffix (1st, 2nd, 3rd, etc.)
- */
-function getOrdinalSuffix(num) {
-  const j = num % 10;
-  const k = num % 100;
-  if (j === 1 && k !== 11) return 'st';
-  if (j === 2 && k !== 12) return 'nd';
-  if (j === 3 && k !== 13) return 'rd';
-  return 'th';
-}
-
-/**
- * Calculate natural frequency for a test session using Z-axis data only
- * This analyzes the Z-axis vibration data to find natural frequencies
- * @param {string} sessionId - The MongoDB ID of the session
- * @param {boolean} isRealtime - Whether this is a real-time calculation (don't save to DB)
- */
-async function calculateNaturalFrequency(sessionId, isRealtime = false) {
-  try {
-    console.log(`Beginning natural frequency calculation for session ${sessionId}, realtime=${isRealtime}`);
-    
-    const session = await TestSession.findById(sessionId);
-    if (!session || !session.zAxisData || session.zAxisData.length < 1) {
-      console.log('No Z-axis data available for frequency analysis');
-      return { frequency: 0, qFactor: 0, amplitude: 0, naturalFrequencies: [] };
-    }
-    
-    const dataPoints = session.zAxisData.length;
-    console.log(`Processing ${dataPoints} data points for frequency analysis`);
-    
-    // Get the mass value from the session (default to 1.0 kg if not specified)
-    const testMass = session.testMass || 1.0;
-    
-    // Calculate all theoretical natural frequencies
-    const theoreticalFrequencies = calculateTheoreticalNaturalFrequencies(session, 5);
-    console.log('Theoretical natural frequencies calculated:', theoreticalFrequencies);
-    
-    // Extract Z-axis raw values for frequency analysis
-    const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
-    const timestamps = session.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
-    
-    // Analyze even single data points for immediate response
-    if (zAxisRawData.length === 1) {
-      const amplitude = Math.abs(zAxisRawData[0]);
-      return { 
-        frequency: theoreticalFrequencies[0].frequency, 
-        qFactor: 0, 
-        amplitude: amplitude,
-        naturalPeriod: theoreticalFrequencies[0].frequency > 0 ? 1/theoreticalFrequencies[0].frequency : 0,
-        stiffness: 0,
-        rms: amplitude,
-        crestFactor: 1,
-        bandwidth: 0,
-        naturalFrequencies: theoreticalFrequencies
-      };
-    }
-
-    // Calculate sampling frequency from timestamps
-    const avgSampleInterval = timestamps.length > 1 
-      ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
-      : 50; // Default 50ms intervala
-    const samplingFreq = 1000 / avgSampleInterval; // Convert to Hz
-
-    console.log(`Sampling frequency: ${samplingFreq.toFixed(2)} Hz, Average interval: ${avgSampleInterval.toFixed(2)} ms`);
-
-    // For very small datasets (2-7 points), use simple time-domain analysis
-    let dominantFrequency = 0;
-    let fftResult = null;
-    
-    if (zAxisRawData.length < 8) {
-      // Simple peak detection for small datasets
-      dominantFrequency = estimateFrequencyFromPeaks(zAxisRawData, samplingFreq);
-    } else {
-      // Perform FFT on Z-axis data for larger datasets
-      fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
-      dominantFrequency = fftResult.dominantFreq;
-    }
-
-    // Use the first theoretical frequency as the primary natural frequency
-    const primaryNaturalFreq = theoreticalFrequencies[0].frequency;
-    const naturalPeriod = primaryNaturalFreq > 0 ? 1 / primaryNaturalFreq : 0;
-    
-    // Calculate theoretical stiffness for each mode
-    theoreticalFrequencies.forEach(mode => {
-      mode.stiffness = testMass * Math.pow(2 * Math.PI * mode.frequency, 2); // N/m
-      mode.naturalPeriod = mode.frequency > 0 ? 1 / mode.frequency : 0;
-    });
-    
-    // Calculate time domain characteristics
-    const peakAmplitude = Math.max(...zAxisRawData.map(Math.abs));
-    const rms = Math.sqrt(zAxisRawData.reduce((sum, val) => sum + val * val, 0) / zAxisRawData.length);
-    
-    // Calculate force from acceleration and mass (F = ma)
-    const peakForce = peakAmplitude * testMass; // Force in Newtons
-    
-    // Calculate Q factor from frequency spectrum (if available)
-    let qFactor = 0;
-    if (fftResult) {
-      qFactor = calculateQFactor(fftResult.magnitudes, fftResult.frequencies, primaryNaturalFreq);
-    }
-    const crestFactor = peakAmplitude / (rms > 0 ? rms : 1);
-    
-    // Calculate frequency spectrum characteristics
-    const bandwidth = qFactor > 0 ? primaryNaturalFreq / qFactor : 0;
-    
-    // Only update the database if this is not a real-time calculation
-    if (!isRealtime) {
-      // Update session with calculated values
-      session.naturalFrequency = primaryNaturalFreq;
-      session.resonanceFrequencies = theoreticalFrequencies.map(f => f.frequency);
-      session.peakAmplitude = peakAmplitude;
-      session.frequencyAnalysisComplete = true;
-      
-      // Add frequency-focused mechanical properties including all natural frequencies
-      session.mechanicalProperties = {
-        naturalPeriod,
-        stiffness: theoreticalFrequencies[0].stiffness,
-        qFactor,
-        rms,
-        crestFactor,
-        bandwidth,
-        peakForce,
-        naturalFrequencies: theoreticalFrequencies,
-        dominantFrequency: dominantFrequency // Frequency found from measured data
-      };
-      
-      await session.save();
-      
-      console.log(`All natural frequencies calculated:`);
-      theoreticalFrequencies.forEach((mode, index) => {
-        console.log(`  Mode ${mode.mode}: ${mode.frequency.toFixed(2)} Hz (Period: ${mode.naturalPeriod.toFixed(4)}s, Stiffness: ${mode.stiffness.toFixed(2)} N/m)`);
-      });
-      console.log(`Measured dominant frequency: ${dominantFrequency.toFixed(2)} Hz, Q: ${qFactor.toFixed(2)}, Force: ${peakForce.toFixed(2)}N`);
-    }
-    
-    return {
-      frequency: primaryNaturalFreq,
-      qFactor: qFactor,
-      amplitude: peakAmplitude,
-      naturalPeriod: naturalPeriod,
-      stiffness: theoreticalFrequencies[0].stiffness,
-      rms: rms,
-      crestFactor: crestFactor,
-      bandwidth: bandwidth,
-      peakForce: peakForce,
-      frequencies: fftResult?.frequencies || [],
-      magnitudes: fftResult?.magnitudes || [],
-      testMass: testMass,
-      naturalFrequencies: theoreticalFrequencies,
-      dominantFrequency: dominantFrequency
-    };
-    
-  } catch (error) {
-    console.error('Error calculating Z-axis natural frequency:', error);
-    return { frequency: 0, qFactor: 0, amplitude: 0, naturalFrequencies: [] };
-  }
-}
-
-// Add new function for simple frequency estimation with small datasets
-function estimateFrequencyFromPeaks(data, samplingFreq) {
-  if (data.length < 2) return 0;
-  
-  // Find zero crossings or direction changes
-  let crossings = 0;
-  let lastDirection = 0;
-  
-  for (let i = 1; i < data.length; i++) {
-    const diff = data[i] - data[i - 1];
-    if (diff !== 0) {
-      const direction = diff > 0 ? 1 : -1;
-      if (lastDirection !== 0 && direction !== lastDirection) {
-        crossings++;
-      }
-      lastDirection = direction;
-    }
-  } 
-  
-  if (crossings === 0) return 0;
-  
-  // Estimate frequency from direction changes
-  const totalTime = (data.length - 1) / samplingFreq;
-  const estimatedFreq = (crossings / 2) / totalTime; // Half-cycles to full cycles
-  
-  return estimatedFreq;
-}
 
 // Helper function to broadcast to web clients
 function broadcastToWebClients(data) {
@@ -760,12 +524,10 @@ app.get('/api/sessions/:id/data', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
     
-    const naturalFrequencyData = await calculateNaturalFrequency(session._id);
     res.json({
       zAxisData: session.zAxisData,
       resonanceData: {
-        resonanceFrequencies: session.resonanceFrequencies,
-        naturalFrequency: naturalFrequencyData,
+        naturalFrequency: session.naturalFrequency,
         peakAmplitude: session.peakAmplitude,
         analysisComplete: session.frequencyAnalysisComplete
       }
@@ -777,7 +539,11 @@ app.get('/api/sessions/:id/data', async (req, res) => {
 
 app.get('/api/export/:sessionId', async (req, res) => {
   try {
-    const session = await TestSession.findById(req.params.sessionId);
+    const [session, vibrationData] = await Promise.all([
+      TestSession.findById(req.params.sessionId),
+      VibrationData.find({ sessionId: req.params.sessionId }).sort({ timestamp: 1 })
+    ]);
+
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
@@ -785,25 +551,18 @@ app.get('/api/export/:sessionId', async (req, res) => {
     const format = req.query.format || 'json';
     
     if (format === 'csv') {
-      // Calculate FFT for amplitude vs frequency
-      const zAxisRawData = session.zAxisData.map(d => d.rawZ || d.deltaZ || 0);
-      const timestamps = session.zAxisData.map(d => parseInt(d.timestamp) || Date.now());
-      const avgSampleInterval = timestamps.length > 1 
-        ? (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1)
-        : 50;
-      const samplingFreq = 1000 / avgSampleInterval;
-      // Use FFT utility
-      const fftResult = performSimpleFFT(zAxisRawData, samplingFreq);
-
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="frequency-amplitude-${session._id}.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="vibration-data-${session._id}.csv"`);
 
-      let csv = 'Frequency (Hz),Amplitude\n';
-      if (fftResult && fftResult.frequencies && fftResult.magnitudes) {
-        for (let i = 0; i < fftResult.frequencies.length; i++) {
-          csv += `${fftResult.frequencies[i]},${fftResult.magnitudes[i]}\n`;
-        }
-      }
+      // Create CSV header
+      let csv = 'Timestamp,Frequency (Hz),Amplitude,Raw Z-Axis (g),Delta Z (g)\n';
+      
+      // Add each data point
+      vibrationData.forEach(point => {
+        const timestamp = new Date(point.timestamp).toISOString();
+        csv += `${timestamp},${point.frequency || 0},${point.amplitude || 0},${point.rawAcceleration || 0},${point.deltaZ || 0}\n`;
+      });
+      
       res.send(csv);
     } else {
       res.json({
@@ -817,7 +576,6 @@ app.get('/api/export/:sessionId', async (req, res) => {
         zAxisData: session.zAxisData,
         resonanceData: {
           naturalFrequency: session.naturalFrequency,
-          resonanceFrequencies: session.resonanceFrequencies,
           peakAmplitude: session.peakAmplitude
         }
       });
@@ -881,10 +639,17 @@ app.get('/api/sessions/:id/frequency', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
     
-    // Calculate fresh frequency data
-    const frequencyData = await calculateNaturalFrequency(session._id);
-    
-    res.json(frequencyData);
+    res.json({
+      frequency: session.naturalFrequency,
+      amplitude: session.peakAmplitude,
+      qFactor: session.mechanicalProperties?.qFactor,
+      naturalPeriod: session.mechanicalProperties?.naturalPeriod,
+      stiffness: session.mechanicalProperties?.stiffness,
+      rms: session.mechanicalProperties?.rms,
+      crestFactor: session.mechanicalProperties?.crestFactor,
+      bandwidth: session.mechanicalProperties?.bandwidth,
+      naturalFrequencies: session.mechanicalProperties?.naturalFrequencies || []
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
