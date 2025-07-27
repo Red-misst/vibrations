@@ -91,6 +91,8 @@ const VibrationData = mongoose.model('VibrationData', VibrationDataSchema);
 let currentSession = null;
 let webClients = new Set();
 let espClients = new Map();
+let saveTimeout = null;
+let dataBuffer = [];
 
 // Enhanced WebSocket handling
 wss.on('connection', (ws, req) => {
@@ -356,59 +358,91 @@ wss.on('connection', (ws, req) => {
         }
         
         // Handle FFT result from ESP8266
-        if (data.type === 'fft_result' && currentSession) {
-          try {
-            // Store FFT data from ESP8266
-            const vibrationData = new VibrationData({
-              sessionId: currentSession._id,
-              deviceId: data.deviceId || 'unknown',
-              timestamp: new Date(data.timestamp || Date.now()),
-              deltaZ: data.deltaZ || 0,
-              frequency: data.frequency || 0,
-              amplitude: data.amplitude || 0,
-              rawAcceleration: data.raw_acceleration || 0,
-              receivedAt: new Date()
-            });
-
-            await vibrationData.save();
-
-            // Format data for broadcast
-            const broadcastData = {
-              type: 'vibration_data',
-              sessionId: currentSession._id,
-              deviceId: data.deviceId,
-              timestamp: vibrationData.timestamp.getTime(),
-              deltaZ: vibrationData.deltaZ,
-              frequency: vibrationData.frequency,
-              amplitude: vibrationData.amplitude,
-              rawAcceleration: vibrationData.rawAcceleration,
-              receivedAt: vibrationData.receivedAt.toISOString()
-            };
-
-            // Immediate broadcast to web clients
-            broadcastToWebClients(broadcastData);
-
-            // Update session with latest data
-            if (!currentSession.zAxisData) currentSession.zAxisData = [];
-            currentSession.zAxisData.push({
-              timestamp: vibrationData.timestamp,
-              deltaZ: vibrationData.deltaZ,
-              frequency: vibrationData.frequency,
-              amplitude: vibrationData.amplitude,
-              rawAcceleration: vibrationData.rawAcceleration
-            });
-
-            // Keep only last 100 samples in memory
-            if (currentSession.zAxisData.length > 100) {
-              currentSession.zAxisData = currentSession.zAxisData.slice(-100);
+        if (data.type === 'fft_result') {
+           
+            
+            // Only process and broadcast data if there's an active session
+            if (!currentSession || !currentSession.isActive) {
+               
+                return;
             }
 
-            // Save session updates asynchronously
-            currentSession.save().catch(err => console.error('Error saving session:', err));
+            try {
+                // Store FFT data from ESP8266
+                const vibrationData = new VibrationData({
+                    sessionId: currentSession._id,
+                    deviceId: data.deviceId || 'unknown',
+                    timestamp: new Date(data.timestamp || Date.now()),
+                    deltaZ: data.deltaZ || 0,
+                    frequency: data.frequency || 0,
+                    amplitude: data.amplitude || 0,
+                    rawAcceleration: data.raw_acceleration || 0,
+                    receivedAt: new Date()
+                });
 
-          } catch (error) {
-            console.error('Error processing vibration data:', error);
-          }
+                await vibrationData.save();
+
+                // Add data to buffer
+                dataBuffer.push({
+                    timestamp: vibrationData.timestamp,
+                    deltaZ: vibrationData.deltaZ,
+                    frequency: vibrationData.frequency,
+                    amplitude: vibrationData.amplitude,
+                    rawAcceleration: vibrationData.rawAcceleration
+                });
+
+                // Clear any existing timeout
+                if (saveTimeout) {
+                    clearTimeout(saveTimeout);
+                }
+
+                // Set new timeout for batch save
+                saveTimeout = setTimeout(async () => {
+                    try {
+                        if (currentSession && currentSession.isActive && dataBuffer.length > 0) {
+                            // Update session with buffered data
+                            await TestSession.findByIdAndUpdate(
+                                currentSession._id,
+                                { 
+                                    $push: { 
+                                        zAxisData: { 
+                                            $each: dataBuffer,
+                                            $slice: -100 // Keep only last 100 samples
+                                        }
+                                    }
+                                },
+                                { new: true }
+                            );
+                            // Clear buffer after successful save
+                            dataBuffer = [];
+                        }
+                    } catch (error) {
+                        console.error('Error saving buffered data:', error);
+                    }
+                }, 1000);
+
+                // Format data for broadcast with session status
+                const broadcastData = {
+                    type: 'vibration_data',
+                    sessionId: currentSession._id,
+                    deviceId: data.deviceId,
+                    timestamp: vibrationData.timestamp.getTime(),
+                    deltaZ: vibrationData.deltaZ,
+                    frequency: vibrationData.frequency,
+                    amplitude: vibrationData.amplitude,
+                    rawAcceleration: vibrationData.rawAcceleration,
+                    receivedAt: vibrationData.receivedAt.toISOString(),
+                    isActive: true
+                };
+
+                // Broadcast only if session is still active
+                if (currentSession.isActive) {
+                    broadcastToWebClients(broadcastData);
+                }
+
+            } catch (error) {
+                console.error('Error processing vibration data:', error);
+            }
         }
       } catch (error) {
         console.error('Error processing ESP8266 data:', error);
@@ -438,7 +472,11 @@ wss.on('connection', (ws, req) => {
 // Helper function to broadcast to web clients
 function broadcastToWebClients(data) {
   const message = typeof data === 'string' ? data : JSON.stringify(data);
-  console.log(`Broadcasting to ${webClients.size} clients: ${typeof data === 'string' ? data.substring(0, 50) : data.type}`);
+  
+  // Log broadcast attempts for vibration data
+  if (data.type === 'vibration_data') {
+      console.log(`Broadcasting vibration data for session ${data.sessionId} (Active: ${data.isActive})`);
+  }
   
   webClients.forEach(client => {
     if (client.readyState === 1) { // WebSocket.OPEN is 1

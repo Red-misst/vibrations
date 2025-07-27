@@ -115,14 +115,14 @@ class VibrationMonitor {
 
         const timestamp = new Date(data.timestamp).toLocaleTimeString();
         
-        // Update current values immediately
-        document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
-        document.getElementById('amplitudeValue').textContent = data.amplitude?.toFixed(3) || '0.000';
-        document.getElementById('frequencyValue').textContent = data.frequency?.toFixed(2) || '0.00';
+        // Update current values immediately with proper formatting
+        document.getElementById('currentZValue').textContent = parseFloat(data.deltaZ).toFixed(3);
+        document.getElementById('amplitudeValue').textContent = data.amplitude ? parseFloat(data.amplitude).toFixed(3) : '0.000';
+        document.getElementById('frequencyValue').textContent = data.frequency ? parseFloat(data.frequency).toFixed(2) : '0.00';
 
         // Update charts efficiently
         this.chartData.labels.push(timestamp);
-        this.chartData.deltaZ.push(data.deltaZ);
+        this.chartData.deltaZ.push(parseFloat(data.deltaZ));
 
         // Maintain fixed window of data points
         const maxPoints = 50;
@@ -134,18 +134,43 @@ class VibrationMonitor {
         // Batch update charts with optimized animation
         this.chart.data.labels = this.chartData.labels;
         this.chart.data.datasets[0].data = this.chartData.deltaZ;
-        this.chart.update('none'); // Disable animation for better performance
+        
+        // Use requestAnimationFrame for smoother updates
+        if (!this._updateRAF) {
+            this._updateRAF = requestAnimationFrame(() => {
+                this.chart.update('none'); // Disable animation for better performance
+                this._updateRAF = null;
+            });
+        }
 
-        // Update frequency chart if frequency data is present
+        // Update frequency chart if frequency data is present and valid
         if (data.frequency > 0 && data.amplitude > 0) {
-            const freqIndex = this.frequencyChart.data.labels.indexOf(data.frequency);
+            const freq = parseFloat(data.frequency);
+            const amp = parseFloat(data.amplitude);
+            const freqIndex = this.frequencyChart.data.labels.indexOf(freq);
+            
             if (freqIndex === -1) {
-                this.frequencyChart.data.labels.push(data.frequency);
-                this.frequencyChart.data.datasets[0].data.push(data.amplitude);
-            } else if (data.amplitude > this.frequencyChart.data.datasets[0].data[freqIndex]) {
-                this.frequencyChart.data.datasets[0].data[freqIndex] = data.amplitude;
+                this.frequencyChart.data.labels.push(freq);
+                this.frequencyChart.data.datasets[0].data.push(amp);
+            } else if (amp > this.frequencyChart.data.datasets[0].data[freqIndex]) {
+                this.frequencyChart.data.datasets[0].data[freqIndex] = amp;
             }
-            this.frequencyChart.update('none');
+
+            // Sort frequency data for better visualization
+            const sortedData = this.frequencyChart.data.labels.map((f, i) => ({
+                freq: f,
+                amp: this.frequencyChart.data.datasets[0].data[i]
+            })).sort((a, b) => a.freq - b.freq);
+
+            this.frequencyChart.data.labels = sortedData.map(d => d.freq);
+            this.frequencyChart.data.datasets[0].data = sortedData.map(d => d.amp);
+            
+            if (!this._freqUpdateRAF) {
+                this._freqUpdateRAF = requestAnimationFrame(() => {
+                    this.frequencyChart.update('none');
+                    this._freqUpdateRAF = null;
+                });
+            }
         }
 
         // Update duration if session is active
