@@ -5,15 +5,15 @@
 #include <ArduinoJson.h>
 #include <arduinoFFT.h>
 
+// ==== Configuration ====
 // WiFi Configuration
-const char* ssid = "Tenda_5C30C8";
-const char* password = "op898989..";
+const char* ssid = "Galaxy";
+const char* password = "Barake2023";
 
-// WebSocket Configuration
-const char* host = "192.168.0.105";
-const int port = 3000;
-const char* url = "/esp8266";
-
+// WebSocket Server Configuration
+const char* host = "vibrations.onrender.com";
+const int port = 443;  // HTTPS port
+const char* url = "/esp8266";  // WebSocket path
 // FFT Config
 #define SAMPLES 64
 #define SAMPLING_FREQUENCY 250  // Increased from 200Hz
@@ -90,80 +90,91 @@ void setup() {
 }
 
 void loop() {
-  webSocket.loop();
+    webSocket.loop();
 
-  mySensor.accelUpdate();
-  double z = mySensor.accelZ();
+    mySensor.accelUpdate();
+    double z = mySensor.accelZ();
 
-  if (!initialized) {
-    baseline = z;
+    if (!initialized) {
+        baseline = z;
+        prevZ = z;
+        movingAverage = z;
+        initialized = true;
+        return;
+    }
+
+    // Update moving average with more responsive alpha
+    const double ALPHA = 0.15;  // Increased from 0.1 for faster response
+    movingAverage = (ALPHA * z) + ((1.0 - ALPHA) * movingAverage);
+    
+    // Store in circular buffer
+    circularBuffer[bufferIndex] = z;
+    bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
+
+    // Calculate dynamic threshold
+    double variance = 0;
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+        variance += sq(circularBuffer[i] - movingAverage);
+    }
+    variance /= BUFFER_SIZE;
+    dynamicThreshold = max(INITIAL_THRESHOLD, sqrt(variance) * 1.2); // Reduced multiplier for more sensitivity
+
+    double deltaZ = abs(z - movingAverage);
+
+    // Send data more frequently when motion is detected
+    if (deltaZ > dynamicThreshold) {
+        Serial.println("⚠ Motion Detected");
+
+        // Faster sampling for FFT
+        for (int i = 0; i < SAMPLES; i++) {
+            mySensor.accelUpdate();
+            vReal[i] = mySensor.accelZ() - movingAverage;
+            vImag[i] = 0;
+            delayMicroseconds(3000);  // ~333 Hz sampling
+        }
+
+        FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+        FFT.compute(FFTDirection::Forward);
+        FFT.complexToMagnitude();
+
+        double peakFreq = 0;
+        double peakAmp = 0;
+        for (int i = 1; i < SAMPLES/2; i++) {
+            if (vReal[i] > peakAmp) {
+                peakAmp = vReal[i];
+                peakFreq = ((double)i * SAMPLING_FREQUENCY) / SAMPLES;
+            }
+        }
+
+        StaticJsonDocument<300> doc;
+        doc["type"] = "fft_result";
+        doc["deviceId"] = deviceId;
+        doc["frequency"] = peakFreq;
+        doc["amplitude"] = peakAmp;
+        doc["raw_acceleration"] = z;
+        doc["deltaZ"] = deltaZ;
+        doc["timestamp"] = millis();
+
+        String jsonPayload;
+        serializeJson(doc, jsonPayload);
+        webSocket.sendTXT(jsonPayload);
+
+        delay(100);  // Reduced delay for more frequent updates
+    } else {
+        // Send basic data periodically even without motion
+        StaticJsonDocument<200> doc;
+        doc["type"] = "fft_result";
+        doc["deviceId"] = deviceId;
+        doc["raw_acceleration"] = z;
+        doc["deltaZ"] = deltaZ;
+        doc["timestamp"] = millis();
+
+        String jsonPayload;
+        serializeJson(doc, jsonPayload);
+        webSocket.sendTXT(jsonPayload);
+        
+        delay(50); // More frequent baseline updates
+    }
+
     prevZ = z;
-    movingAverage = z;
-    initialized = true;
-    return;
-  }
-
-  // Update moving average
-  movingAverage = (ALPHA * z) + ((1.0 - ALPHA) * movingAverage);
-  
-  // Store in circular buffer
-  circularBuffer[bufferIndex] = z;
-  bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
-
-  // Calculate dynamic threshold
-  double variance = 0;
-  for (int i = 0; i < BUFFER_SIZE; i++) {
-    variance += sq(circularBuffer[i] - movingAverage);
-  }
-  variance /= BUFFER_SIZE;
-  dynamicThreshold = max(INITIAL_THRESHOLD, sqrt(variance) * 1.5);
-
-  double deltaZ = abs(z - movingAverage);
-
-  if (deltaZ > dynamicThreshold) {
-    Serial.println("⚠ Motion Detected");
-
-    // Faster sampling
-    for (int i = 0; i < SAMPLES; i++) {
-      mySensor.accelUpdate();
-      vReal[i] = mySensor.accelZ() - movingAverage;  // Remove DC offset
-      vImag[i] = 0;
-      delayMicroseconds(4000);  // 250 Hz
-    }
-
-    // Optimize FFT processing
-    FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
-    FFT.compute(FFTDirection::Forward);
-    FFT.complexToMagnitude();
-
-    // Quick peak finding
-    double peakFreq = 0;
-    double peakAmp = 0;
-    for (int i = 1; i < SAMPLES/2; i++) {
-      if (vReal[i] > peakAmp) {
-        peakAmp = vReal[i];
-        peakFreq = (i * SAMPLING_FREQUENCY) / SAMPLES;
-      }
-    }
-
-    // Efficient JSON creation
-    StaticJsonDocument<200> doc;  // Reduced size
-StaticJsonDocument<300> doc;
-    doc["type"] = "fft_result";
-    doc["deviceId"] = deviceId;
-    doc["frequency"] = round(peakFreq * 1000) / 1000.0;
-    doc["amplitude"] = round(peakAmp * 1000) / 1000.0;
-    doc["raw_acceleration"] = round(rawAccel * 1000) / 1000.0;
-    doc["deltaZ"] = round(deltaZ * 1000) / 1000.0;
-    doc["timestamp"] = millis();
-
-    String jsonPayload;
-    serializeJson(doc, jsonPayload);
-    webSocket.sendTXT(jsonPayload);
-
-    delay(500);  // Reduced recovery time
-  }
-
-  prevZ = z;
-  delay(4);  // Shorter pacing delay
 }

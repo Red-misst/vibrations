@@ -355,120 +355,60 @@ wss.on('connection', (ws, req) => {
           return;
         }
         
-        if (data.type === 'vibration_data' && currentSession) {
-          // Z-axis only data storage
-          const vibrationData = new VibrationData({
-            sessionId: currentSession._id,
-            deviceId: data.deviceId || 'unknown',
-            timestamp: new Date(data.timestamp || Date.now()),
-            deltaZ: data.deltaZ || 0,
-            rawZ: data.rawZ || 0,
-            magnitude: data.magnitude || data.deltaZ || 0,
-            receivedAt: new Date()
-          });
+        // Handle FFT result from ESP8266
+        if (data.type === 'fft_result' && currentSession) {
+          try {
+            // Store FFT data from ESP8266
+            const vibrationData = new VibrationData({
+              sessionId: currentSession._id,
+              deviceId: data.deviceId || 'unknown',
+              timestamp: new Date(data.timestamp || Date.now()),
+              deltaZ: data.deltaZ || 0,
+              frequency: data.frequency || 0,
+              amplitude: data.amplitude || 0,
+              rawAcceleration: data.raw_acceleration || 0,
+              receivedAt: new Date()
+            });
 
-          await vibrationData.save();
+            await vibrationData.save();
 
-          // Update session with latest Z-axis data for real-time analysis
-          if (!currentSession.zAxisData) currentSession.zAxisData = [];
-          
-          // Store both raw and delta values for comprehensive analysis
-          currentSession.zAxisData.push({
-            timestamp: data.timestamp,
-            deltaZ: data.deltaZ,
-            rawZ: data.rawZ,
-            receivedAt: new Date()
-          });
-          
-          // Keep only last 100 samples for real-time analysis
-          if (currentSession.zAxisData.length > 100) {
-            currentSession.zAxisData = currentSession.zAxisData.slice(-100);
-          }
-
-          // Perform real-time analysis on EVERY data point - no minimum threshold
-          if (currentSession.zAxisData.length >= 1) {
-            const frequencyData = await calculateNaturalFrequency(currentSession._id, true);
-            
-            // Broadcast enhanced Z-axis data to web clients with real-time analysis
-            broadcastToWebClients({
+            // Format data for broadcast
+            const broadcastData = {
               type: 'vibration_data',
               sessionId: currentSession._id,
               deviceId: data.deviceId,
-              timestamp: data.timestamp,
-              deltaZ: data.deltaZ,
-              rawZ: data.rawZ,
-              magnitude: data.magnitude,
-              receivedAt: new Date().toISOString(),
-              // Real-time frequency calculations for ANY vibration
-              frequency: frequencyData.frequency,
-              qFactor: frequencyData.qFactor,
-              amplitude: frequencyData.amplitude,
-              naturalPeriod: frequencyData.naturalPeriod,
-              bandwidth: frequencyData.bandwidth,
-              naturalFrequencies: frequencyData.naturalFrequencies || []
+              timestamp: vibrationData.timestamp.getTime(),
+              deltaZ: vibrationData.deltaZ,
+              frequency: vibrationData.frequency,
+              amplitude: vibrationData.amplitude,
+              rawAcceleration: vibrationData.rawAcceleration,
+              receivedAt: vibrationData.receivedAt.toISOString()
+            };
+
+            // Immediate broadcast to web clients
+            broadcastToWebClients(broadcastData);
+
+            // Update session with latest data
+            if (!currentSession.zAxisData) currentSession.zAxisData = [];
+            currentSession.zAxisData.push({
+              timestamp: vibrationData.timestamp,
+              deltaZ: vibrationData.deltaZ,
+              frequency: vibrationData.frequency,
+              amplitude: vibrationData.amplitude,
+              rawAcceleration: vibrationData.rawAcceleration
             });
-            
-            // Send frequency data update for every data point
-            broadcastToWebClients({
-              type: 'frequency_data',
-              sessionId: currentSession._id,
-              frequency: frequencyData.frequency,
-              qFactor: frequencyData.qFactor,
-              amplitude: frequencyData.amplitude,
-              naturalPeriod: frequencyData.naturalPeriod,
-              stiffness: frequencyData.stiffness,
-              rms: frequencyData.rms,
-              crestFactor: frequencyData.crestFactor,
-              bandwidth: frequencyData.bandwidth,
-              naturalFrequencies: frequencyData.naturalFrequencies || []
-            });
+
+            // Keep only last 100 samples in memory
+            if (currentSession.zAxisData.length > 100) {
+              currentSession.zAxisData = currentSession.zAxisData.slice(-100);
+            }
+
+            // Save session updates asynchronously
+            currentSession.save().catch(err => console.error('Error saving session:', err));
+
+          } catch (error) {
+            console.error('Error processing vibration data:', error);
           }
-        }
-        
-        // Handle FFT result from ESP8266
-        if (data.type === 'fft_result' && currentSession) {
-          // Store FFT data from ESP8266
-          const vibrationData = new VibrationData({
-            sessionId: currentSession._id,
-            deviceId: data.deviceId || 'unknown',
-            timestamp: new Date(data.timestamp || Date.now()),
-            deltaZ: data.deltaZ || 0,
-            frequency: data.frequency || 0,
-            amplitude: data.amplitude || 0,
-            rawAcceleration: data.raw_acceleration || 0,
-            receivedAt: new Date()
-          });
-
-          await vibrationData.save();
-
-          // Update session with latest data point
-          if (!currentSession.zAxisData) currentSession.zAxisData = [];
-          
-          currentSession.zAxisData.push({
-            timestamp: data.timestamp,
-            deltaZ: data.deltaZ,
-            frequency: data.frequency,
-            amplitude: data.amplitude,
-            rawAcceleration: data.raw_acceleration
-          });
-          
-          // Keep only last 100 samples
-          if (currentSession.zAxisData.length > 100) {
-            currentSession.zAxisData = currentSession.zAxisData.slice(-100);
-          }
-
-          // Broadcast data to web clients
-          broadcastToWebClients({
-            type: 'vibration_data',
-            sessionId: currentSession._id,
-            deviceId: data.deviceId,
-            timestamp: data.timestamp,
-            deltaZ: data.deltaZ,
-            frequency: data.frequency,
-            amplitude: data.amplitude,
-            rawAcceleration: data.raw_acceleration,
-            receivedAt: new Date().toISOString()
-          });
         }
       } catch (error) {
         console.error('Error processing ESP8266 data:', error);

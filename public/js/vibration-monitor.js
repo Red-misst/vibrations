@@ -108,47 +108,53 @@ class VibrationMonitor {
     }
 
     onVibrationData(data) {
-        // Update time-domain chart
-        const timestamp = new Date(data.timestamp);
-        const timeStr = timestamp.toLocaleTimeString();
+        if (viewingHistoricalSession) return;
+
+        dataPointCount++;
+        document.getElementById('dataPointCount').textContent = dataPointCount;
+
+        const timestamp = new Date(data.timestamp).toLocaleTimeString();
         
-        this.chartData.labels.push(timeStr);
+        // Update current values immediately
+        document.getElementById('currentZValue').textContent = data.deltaZ.toFixed(3);
+        document.getElementById('amplitudeValue').textContent = data.amplitude?.toFixed(3) || '0.000';
+        document.getElementById('frequencyValue').textContent = data.frequency?.toFixed(2) || '0.00';
+
+        // Update charts efficiently
+        this.chartData.labels.push(timestamp);
         this.chartData.deltaZ.push(data.deltaZ);
 
-        // Keep only last maxDataPoints
-        if (this.chartData.labels.length > this.maxDataPoints) {
-            this.chartData.labels.shift();
-            this.chartData.deltaZ.shift();
+        // Maintain fixed window of data points
+        const maxPoints = 50;
+        if (this.chartData.labels.length > maxPoints) {
+            this.chartData.labels = this.chartData.labels.slice(-maxPoints);
+            this.chartData.deltaZ = this.chartData.deltaZ.slice(-maxPoints);
         }
 
-        // Update time-domain chart
+        // Batch update charts with optimized animation
         this.chart.data.labels = this.chartData.labels;
         this.chart.data.datasets[0].data = this.chartData.deltaZ;
-        this.chart.update('quiet');
+        this.chart.update('none'); // Disable animation for better performance
 
-        // Update statistics only if values are higher than current
-        if (data.amplitude > this.statistics.maxVibration) {
-            this.statistics.maxVibration = data.amplitude;
-            document.getElementById('peak-amplitude').textContent = data.amplitude.toFixed(3);
-        }
-
-        if (data.frequency > this.statistics.naturalFrequency) {
-            this.statistics.naturalFrequency = data.frequency;
-            document.getElementById('natural-frequency').textContent = data.frequency.toFixed(1) + ' Hz';
-        }
-
-        // Update frequency chart with new frequency point
+        // Update frequency chart if frequency data is present
         if (data.frequency > 0 && data.amplitude > 0) {
             const freqIndex = this.frequencyChart.data.labels.indexOf(data.frequency);
             if (freqIndex === -1) {
-                // New frequency point
                 this.frequencyChart.data.labels.push(data.frequency);
                 this.frequencyChart.data.datasets[0].data.push(data.amplitude);
             } else if (data.amplitude > this.frequencyChart.data.datasets[0].data[freqIndex]) {
-                // Update amplitude if higher
                 this.frequencyChart.data.datasets[0].data[freqIndex] = data.amplitude;
             }
-            this.frequencyChart.update('quiet');
+            this.frequencyChart.update('none');
+        }
+
+        // Update duration if session is active
+        if (this.sessionStartTime) {
+            const duration = Math.floor((new Date() - this.sessionStartTime) / 1000);
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            document.getElementById('session-duration').textContent = 
+                `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
     }
 
@@ -557,9 +563,13 @@ class VibrationMonitor {
     }
 
     updateChart() {
-        this.chart.data.labels = this.chartData.labels;
-        this.chart.data.datasets[0].data = this.chartData.deltaZ;
-        this.chart.update('none');
+        if (!this.chart) return;
+        
+        requestAnimationFrame(() => {
+            this.chart.data.labels = this.chartData.labels;
+            this.chart.data.datasets[0].data = this.chartData.deltaZ;
+            this.chart.update('none');
+        });
     }
 
     updateConnectionStatus(connected) {
